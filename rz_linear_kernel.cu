@@ -27,9 +27,9 @@ __device__ int64_t hash_func(int64_t a, int64_t b, const torch::PackedTensorAcce
 
 inline __device__ int64_t location(int64_t i, int64_t j, int chunk_size, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers, int64_t range) {
     // we have chunked columwise for faster forward pass
-    int64_t chunk_id = j / chunk_id;
-    int64_t offset = j % chunk_id;
-    return (hash_func(i, chunk_id, random_numbers) + offset) % range;
+    int64_t chunk_id = i / chunk_size;
+    int64_t offset = i % chunk_size;
+    return (hash_func(chunk_id, j, random_numbers) + offset) % range;
 }
 
 template<typename scalar_t>
@@ -120,6 +120,8 @@ __global__ void rz_linear_backward_cuda_kernel_weight(
   int num_chunks = (input_dim + chunk_size - 1)/ chunk_size;
   int idx = 0;
   int kidx =0;
+  int loc = 0;
+  //printf("%d %d (%d, %d)\n", wt_x, wt_y, input_dim, output_dim);
   
   for (; wt_x < input_dim; wt_x+= gridDim.x) {
     for(; wt_y < output_dim; wt_y += blockDim.y) {
@@ -128,7 +130,9 @@ __global__ void rz_linear_backward_cuda_kernel_weight(
             val += input[k][wt_x] * out_grad[k][wt_y];
         }
         // multiple threads will write to this.
-        atomicAdd(& weight_grad[location(wt_x, wt_y, chunk_size, random_numbers, hashed_weight_size)], val);
+        loc = location(wt_x, wt_y, chunk_size, random_numbers, hashed_weight_size);
+        atomicAdd(& weight_grad[loc], val);
+        //printf("%d %d %d adding %.4f\n", wt_x, wt_y, loc, val);
     }
   }
 }
@@ -215,8 +219,8 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward_cuda (
 {
     // we have to return two grad - w.r.t input and w.r.t hashed_weights
 
-    auto input_grad = at::empty({input.size(0), input.size(1)}, input.options());
-    auto weight_grad = at::empty({hashed_weights.size(0)}, input.options());
+    auto input_grad = at::zeros({input.size(0), input.size(1)}, input.options());
+    auto weight_grad = at::zeros({hashed_weights.size(0)}, input.options());
 
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(input.device().index());
 
@@ -249,8 +253,8 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward_cuda (
     }));
 
     //weight_grad TODO cannot take advantage of chunk in robe-z here.
-    x_max = output_dim;
-    y_max = input_dim;
+    x_max = input_dim;
+    y_max = output_dim;
 
     block = dim3(1, MAX_BLOCK_SIZE, 1);
     if (y_max < MAX_BLOCK_SIZE) {
@@ -275,7 +279,7 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward_cuda (
             hashed_weights.size(0)
       );
     }));
-
+   fflush(stdout);
    cudaDeviceSynchronize();
    return std::tuple<torch::Tensor, torch::Tensor>(input_grad, weight_grad);
 }
