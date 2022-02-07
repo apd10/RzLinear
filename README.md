@@ -1,3 +1,4 @@
+!! NOTE : THis implementation is quite slow and a better implementation is being created for practical usage !!
 Model compression - matrix multiply with compressed matrix using state-of-the-art ROBE-Z compression.
 
 Sample Usage:
