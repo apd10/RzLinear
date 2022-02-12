@@ -19,10 +19,15 @@
 
 #define MAX_GRID_SIZE  8192
 #define MAX_BLOCK_SIZE  128
-
+#define SMLS 32 // if N , then the shared limit should be N x N x 3 atleast
+#define WARP_SIZE 32
 
 __device__ int64_t hash_func(int64_t a, int64_t b, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers) {
     return (a * random_numbers[3] + b * random_numbers[2] + random_numbers[1]) % random_numbers[0];
+}
+
+__device__ int64_t hash_func3(int64_t a, int64_t b, int64_t c, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers) {
+    return (a * random_numbers[3] + b * random_numbers[2] + c* random_numbers[1] + random_numbers[4]) % random_numbers[0];
 }
 
 inline __device__ int64_t location(int64_t i, int64_t j, int chunk_size, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers, int64_t range) {
@@ -30,6 +35,14 @@ inline __device__ int64_t location(int64_t i, int64_t j, int chunk_size, const t
     int64_t chunk_id = i / chunk_size;
     int64_t offset = i % chunk_size;
     return (hash_func(chunk_id, j, random_numbers) + offset) % range;
+}
+
+inline __device__ int64_t location_tile(int64_t tile_i, int64_t tile_j, int i, int j, int chunk_size,
+                                        const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers, int64_t range) {
+    int id = j * SMLS + i;
+    int chunk_id = id / chunk_size;
+    int offset = id % chunk_size;
+    return (hash_func3(tile_i, tile_j, chunk_id, random_numbers) + offset) % range;
 }
 
 template<typename scalar_t>
@@ -167,6 +180,148 @@ torch::Tensor rz_linear_forward_cuda (
 
     AT_DISPATCH_FLOATING_TYPES(hashed_weights.type(), "rz_linear_forward_cuda", ([&] {
         rz_linear_forward_cuda_kernel<scalar_t><<<grid, block, 0, stream>>>(
+            hashed_weights.packed_accessor32<scalar_t, 1, torch::RestrictPtrTraits>(),
+            input.packed_accessor32<scalar_t, 2, torch::RestrictPtrTraits>(),
+            output.packed_accessor32<scalar_t, 2, torch::RestrictPtrTraits>(),
+            random_numbers.packed_accessor32<int64_t, 1, torch::RestrictPtrTraits>(),
+            input.size(0),
+            input_dim,
+            output_dim,
+            chunk_size,
+            hashed_weights.size(0)
+      );
+    }));
+   cudaDeviceSynchronize();
+   return output;
+}
+
+
+template<typename scalar_t>
+__global__ void rz_linear_forward_cuda_kernelXXX(
+            torch::PackedTensorAccessor32<scalar_t, 1, torch::RestrictPtrTraits>  hashed_weights,
+            torch::PackedTensorAccessor32<scalar_t, 2, torch::RestrictPtrTraits>  input,
+            torch::PackedTensorAccessor32<scalar_t, 2, torch::RestrictPtrTraits>  output,
+            torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits>  random_numbers,
+            int batch,
+            int input_dim,
+            int output_dim,
+            int chunk_size,
+            int hashed_weight_size
+)
+{
+  /* strategy is that each block is responsible for SIDE x SIDE chunk of output. */
+  int total_output_blocks_x = ((batch + SMLS - 1) / SMLS);
+  int total_output_blocks_y = ((output_dim + SMLS - 1)/  SMLS);
+  int total_interim_blocks_k = ((input_dim + SMLS - 1)/  SMLS);
+  int total_output_blocks = total_output_blocks_x * total_output_blocks_y;
+  int tid = threadIdx.x;
+  int bid = blockIdx.x;
+
+  int block_x;
+  int block_y;
+  int i_block_x;
+  int i_block_y;
+  int loc;
+  int r,ir,ix,iy;
+
+  scalar_t val;
+
+  __shared__ scalar_t local_output [SMLS][SMLS]; // TODO +1 is the padding so that two rows do not belong to exaclty same memory banks. 
+  __shared__ scalar_t local_input [SMLS][SMLS];
+  __shared__ scalar_t local_weights [SMLS][SMLS];
+  
+  for (int oblock = bid; oblock < total_output_blocks; oblock += gridDim.x) {
+      block_x = oblock % total_output_blocks_x;
+      block_y = oblock / total_output_blocks_x;
+
+      // set hte local_output to 0
+      for( int itid = tid; itid < SMLS * SMLS; itid += blockDim.x) {
+        // keep warp in row
+        i_block_x = itid / SMLS;
+        i_block_y = itid % SMLS;
+        local_output[i_block_x][i_block_y] = 0;
+      }
+
+      // block_x, block_y is the block coordinates
+      for (int interim = 0; interim < total_interim_blocks_k; interim ++ ) {
+          /* we will now load the input chunk of size SIDE x SIDE into local memory*/
+          // copy block_x, interim from input   //  local_input
+          for( int itid = tid; itid < SMLS * SMLS; itid += blockDim.x) {
+              // keep warp in row
+              i_block_x = itid / SMLS;
+              i_block_y = itid % SMLS;
+              if (block_x * SMLS + i_block_x < batch && interim * SMLS  + i_block_y < input_dim) {
+                  local_input[i_block_x][i_block_y] = input[block_x * SMLS + i_block_x][interim * SMLS  + i_block_y];
+              } else {
+                  local_input[i_block_x][i_block_y] = 0;
+              }
+          }
+
+          // copy interim, block_y from weight
+          // we will hash the SxS tile coordinates  // local_weights
+          for( int itid = tid; itid < SMLS * SMLS; itid += blockDim.x) {
+              i_block_x = itid % SMLS;
+              i_block_y = itid / SMLS;
+              if (interim * SMLS + i_block_x < input_dim && block_y * SMLS  + i_block_y < output_dim) {
+                  // stored in column major order
+                  loc = location_tile(interim, block_y, i_block_x, i_block_y, chunk_size, random_numbers, hashed_weight_size);
+                  local_weights[i_block_y][i_block_x] = hashed_weights[loc];
+              } else {
+                  local_weights[i_block_y][i_block_x] = 0;
+              }
+          }
+
+          // local matrix multiplication now
+          for( int itid = tid; itid < SMLS * SMLS; itid += blockDim.x) {
+              r = itid/SMLS;
+              ir = itid % SMLS; 
+              ix = (ir <= r) ? r - ir : (SMLS - (ir - r));
+              iy = ir;
+              // ix,iy is the local_output we will compute now
+              val = 0;
+#pragma unroll
+              for(int k = 0; k < SMLS; k++) {
+                  val += local_input[ix][k] * local_weights[iy][k]; // column-major
+              }
+              local_output[ix][iy] += val;
+          }
+      }
+
+      // now push the local_output into the global memory now
+
+      for( int itid = tid; itid < SMLS * SMLS; itid += blockDim.x) {
+        // keep warp in row
+        i_block_x = itid / SMLS;
+        i_block_y = itid % SMLS;
+        if (block_x * SMLS + i_block_x < batch && block_y * SMLS  + i_block_y < output_dim) {
+          output[block_x * SMLS + i_block_x][block_y * SMLS + i_block_y] = local_output[i_block_x][i_block_y];
+        }
+      }
+  }
+}
+
+
+torch::Tensor rz_linear_forward_cudaXXX (
+    const torch::Tensor& hashed_weights, // 1 x n
+    const torch::Tensor& input, // b x d1
+    const torch::Tensor& random_numbers,
+    int input_dim,
+    int output_dim,
+    int chunk_size
+    )
+{
+
+    
+    int64_t hashedWeightSize = hashed_weights.size(0);
+    auto output = at::empty({input.size(0), output_dim}, input.options());
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream(input.device().index());
+
+    int block = MAX_BLOCK_SIZE;
+    int grid = MAX_GRID_SIZE;
+
+    AT_DISPATCH_FLOATING_TYPES(hashed_weights.type(), "rz_linear_forward_cuda", ([&] {
+        //rz_linear_forward_cuda_kernel1<scalar_t><<<grid, block, (SMLS+1)*(SMLS+1)*3, stream>>>(
+        rz_linear_forward_cuda_kernelXXX<scalar_t><<<grid, block, 0, stream>>>(
             hashed_weights.packed_accessor32<scalar_t, 1, torch::RestrictPtrTraits>(),
             input.packed_accessor32<scalar_t, 2, torch::RestrictPtrTraits>(),
             output.packed_accessor32<scalar_t, 2, torch::RestrictPtrTraits>(),
