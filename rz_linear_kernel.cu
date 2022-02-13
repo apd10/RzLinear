@@ -19,15 +19,30 @@
 
 #define MAX_GRID_SIZE  8192
 #define MAX_BLOCK_SIZE  128
-#define SMLS 32 // if N , then the shared limit should be N x N x 3 atleast
-#define WARP_SIZE 32
+
+#define SMLS 16  // BLOCK in tiled multiplication
+#define SMLSMASK 15L
+#define TTILE 4 // per thread responsibility TTILE x TTILE
+#define SMLST 64 // SMLS * TTILE
+#define SHIFT 1
+
+#define BITMASK 1048575L  // 2^20 -1 for cases when range is < 10^6
+
+#define BASIC 0
+#define TILED 1
 
 __device__ int64_t hash_func(int64_t a, int64_t b, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers) {
-    return (a * random_numbers[3] + b * random_numbers[2] + random_numbers[1]) % random_numbers[0];
+    return (a * random_numbers[3] + b * random_numbers[2] + random_numbers[1]) % random_numbers[0]; // modulo with  large numbers is expensive
+    //return (a * random_numbers[3] + b * random_numbers[2] + random_numbers[1]) & BITMASK; // TODO
 }
 
 __device__ int64_t hash_func3(int64_t a, int64_t b, int64_t c, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers) {
     return (a * random_numbers[3] + b * random_numbers[2] + c* random_numbers[1] + random_numbers[4]) % random_numbers[0];
+}
+
+__device__ int64_t hash_func4(int64_t a, int64_t b, int64_t c, int64_t d, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers) {
+    return (a * random_numbers[3] + b * random_numbers[2] + c* random_numbers[1] + d * random_numbers[4] + random_numbers[5]) % random_numbers[0];
+    //return (a * random_numbers[3] + b * random_numbers[2] + c* random_numbers[1] + d * random_numbers[4] + random_numbers[5]) & (int64_t) BITMASK;
 }
 
 inline __device__ int64_t location(int64_t i, int64_t j, int chunk_size, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers, int64_t range) {
@@ -35,6 +50,17 @@ inline __device__ int64_t location(int64_t i, int64_t j, int chunk_size, const t
     int64_t chunk_id = i / chunk_size;
     int64_t offset = i % chunk_size;
     return (hash_func(chunk_id, j, random_numbers) + offset) % range;
+}
+
+
+inline __device__ int64_t location_tiled(int64_t i, int64_t j, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers, int64_t range) {
+    // we have chunked columwise for faster forward pass
+    int64_t block_x = i / SMLS;
+    int64_t block_y = j / SMLS; 
+    int64_t ix = i & SMLSMASK;
+    int64_t iy = j & SMLSMASK;
+    int64_t loc = (hash_func(block_x, block_y, random_numbers)) % (range - SMLS * SMLS + 1) + ix * SMLS + iy;
+    return loc;
 }
 
 inline __device__ int64_t location_tile(int64_t tile_i, int64_t tile_j, int i, int j, int chunk_size,
@@ -93,20 +119,34 @@ __global__ void rz_linear_backward_cuda_kernel_input(
             int input_dim,
             int output_dim,
             int chunk_size,
-            int64_t hashed_weight_size
+            int64_t hashed_weight_size,
+            bool tiled
 )
 {
   int in_x = blockIdx.x;
   int in_y = threadIdx.y;
   scalar_t val = 0;
   int num_chunks = (input_dim + chunk_size - 1)/ chunk_size;
-  int idx = 0;
-  int kidx =0;
+  int64_t idx = 0;
 
+  
+  #pragma unroll
   for (; in_x < batch; in_x+= gridDim.x) {
+
+  #pragma unroll
     for(; in_y < input_dim; in_y += blockDim.y) {
+
+      #pragma unroll
        for(int k=0; k< output_dim;k++) {
-          input_grad[in_x][in_y] += hashed_weights[location(in_y, k, chunk_size, random_numbers, hashed_weight_size)] * out_grad[in_x][k];
+         if (tiled) {
+            idx = location_tiled(in_y, k, random_numbers, hashed_weight_size);
+            //if (in_y % 16 ==0 && k % 16 == 0)
+            //    printf("[i ]location_tiled: %ld %ld %ld\n", (int64_t) in_y, (int64_t) k, idx);
+         }
+         else {      
+            idx = location(in_y, k, chunk_size, random_numbers, hashed_weight_size);
+         }
+          input_grad[in_x][in_y] += hashed_weights[idx] * out_grad[in_x][k];
        }
     }
   }
@@ -124,26 +164,38 @@ __global__ void rz_linear_backward_cuda_kernel_weight(
             int input_dim,
             int output_dim,
             int chunk_size,
-            int64_t hashed_weight_size
+            int64_t hashed_weight_size,
+            bool tiled
 )
 {
   int wt_x = blockIdx.x;
   int wt_y = threadIdx.y;
   scalar_t val = 0;
   int num_chunks = (input_dim + chunk_size - 1)/ chunk_size;
-  int idx = 0;
-  int kidx =0;
-  int loc = 0;
+  int64_t loc = 0;
   //printf("%d %d (%d, %d)\n", wt_x, wt_y, input_dim, output_dim);
   
+  #pragma unroll
   for (; wt_x < input_dim; wt_x+= gridDim.x) {
+
+    #pragma unroll
     for(; wt_y < output_dim; wt_y += blockDim.y) {
         val = 0;
+
+        #pragma unroll
         for(int k=0;k< batch;k++) {
             val += input[k][wt_x] * out_grad[k][wt_y];
         }
         // multiple threads will write to this.
-        loc = location(wt_x, wt_y, chunk_size, random_numbers, hashed_weight_size);
+        if (tiled) {
+          loc = location_tiled(wt_x, wt_y, random_numbers, hashed_weight_size);
+
+            //if (wt_x % 16 ==0 && wt_y % 16 == 0)
+            //printf("[wt]location_tiled: %ld %ld %ld\n", (int64_t)wt_x, (int64_t)wt_y, loc);
+        } else {
+          loc = location(wt_x, wt_y, chunk_size, random_numbers, hashed_weight_size);
+        }
+
         atomicAdd(& weight_grad[loc], val);
         //printf("%d %d %d adding %.4f\n", wt_x, wt_y, loc, val);
     }
@@ -191,8 +243,101 @@ torch::Tensor rz_linear_forward_cuda (
             hashed_weights.size(0)
       );
     }));
-   cudaDeviceSynchronize();
    return output;
+}
+
+
+template<typename scalar_t>
+__global__ void rz_linear_forward_cuda_kernel_tiled(
+            torch::PackedTensorAccessor32<scalar_t, 1, torch::RestrictPtrTraits>  hashed_weights,
+            torch::PackedTensorAccessor32<scalar_t, 2, torch::RestrictPtrTraits>  input,
+            torch::PackedTensorAccessor32<scalar_t, 2, torch::RestrictPtrTraits>  output,
+            torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits>  random_numbers,
+            int M,
+            int K,
+            int N,
+            int chunk_size,
+            int hashed_weight_size
+)
+{
+  int num_block_width = (N  + SMLST - 1) / SMLST;
+  int total_number_of_blocks = (int)((M + SMLST - 1) / SMLST) * (int)((N + SMLST - 1) / SMLST) ;
+  int block_idx = blockIdx.x;
+  int block_x, block_y, tx, ty, gx, gy;
+  int64_t idx;
+
+  __shared__ float shareI[SMLST][SMLST + SHIFT];
+  __shared__ float shareM[SMLST][SMLST + SHIFT];
+  float val[TTILE][TTILE] = {0};
+
+#pragma unroll
+  for (; block_idx < total_number_of_blocks; block_idx += gridDim.x) { // outer loop if the output matrix is too large
+    block_x = block_idx / num_block_width;
+    block_y = block_idx % num_block_width;
+    tx = threadIdx.x; ty = threadIdx.y;
+    gx = block_x * SMLST + tx;
+    gy = block_y * SMLST + ty;
+
+#pragma unroll
+    for (int x_offset = 0; x_offset < TTILE; x_offset ++) {
+
+#pragma unroll
+      for (int y_offset = 0; y_offset < TTILE ; y_offset ++) {
+        val[x_offset][y_offset] = 0.;
+      }
+    }
+#pragma unroll
+    for (int i = 0 ; i < (K + SMLST - 1) / SMLST ; i ++) {
+      #pragma unroll
+      for (int x_offset_abs = 0; x_offset_abs < SMLST ; x_offset_abs += SMLS) {
+        #pragma unroll
+        for (int y_offset_abs = 0; y_offset_abs < SMLST ; y_offset_abs += SMLS) {
+          // SMLSxSMLS = (block_x, block_y, x_offset_abs/SMLS, y_offset_abs / SMLS)
+          idx = location_tiled(i*SMLST + x_offset_abs, block_y * SMLST + y_offset_abs, random_numbers, hashed_weight_size);
+          //if ( tx == 0 && ty == 0) {
+          //    printf("location_tiled: %ld %ld %ld\n", (int64_t)(i*SMLST + x_offset_abs),(int64_t)( block_y * SMLST + y_offset_abs), idx);
+          //}
+          if (i*SMLST + ty + y_offset_abs < K && gx + x_offset_abs < M) {
+            shareI[tx + x_offset_abs][ty + y_offset_abs] = input[(gx + x_offset_abs)][i* SMLST + ty + y_offset_abs]; // row major (gx, i*SMLS+ty)
+          } else {
+            shareI[tx + x_offset_abs][ty + y_offset_abs] = 0.;
+          }
+          if (i*SMLST + tx + x_offset_abs < K && gy + y_offset_abs < N) {
+            //shareM[ty + y_offset_abs][tx + x_offset_abs]= weights[i* SMLST + (tx + x_offset_abs) + (gy + y_offset_abs) * K]; // coumn major (i*SMLS+tx, gy)
+
+            shareM[ty + y_offset_abs][tx + x_offset_abs]= hashed_weights[idx + tx * SMLS + ty]; // coumn major (i*SMLS+tx, gy)
+            //shareM[ty + y_offset_abs][tx + x_offset_abs]= hashed_weights[location_tiled(i*SMLST + (tx + x_offset_abs), gy + y_offset_abs, random_numbers, hashed_weight_size)];
+          } else {
+            shareM[ty + y_offset_abs][tx + x_offset_abs]  = 0.;
+          }
+        }
+      }
+      __syncthreads();
+
+#pragma unroll
+      for (int x_offset = 0; x_offset < TTILE; x_offset ++) {
+#pragma unroll
+        for (int y_offset = 0; y_offset < TTILE ; y_offset ++) {
+#pragma unroll
+          for (int j = 0; j < SMLST; j ++ ) {
+            val[x_offset][y_offset] += shareI[tx + x_offset*SMLS][j] * shareM[ty + y_offset*SMLS][j];
+          }
+        }
+      }
+      __syncthreads();
+    }
+
+#pragma unroll
+    for (int x_offset = 0; x_offset < TTILE; x_offset ++) {
+
+#pragma unroll
+      for (int y_offset = 0; y_offset < TTILE ; y_offset ++) {
+        if ((gx + x_offset * SMLS) < M && (gy + y_offset * SMLS) < N) {
+          output[(gx + x_offset*SMLS)][(gy + y_offset * SMLS)] = val[x_offset][y_offset];
+        }
+      }
+    }
+  }
 }
 
 
@@ -301,7 +446,7 @@ __global__ void rz_linear_forward_cuda_kernelXXX(
 }
 
 
-torch::Tensor rz_linear_forward_cudaXXX (
+torch::Tensor rz_linear_forward_cuda_tiled (
     const torch::Tensor& hashed_weights, // 1 x n
     const torch::Tensor& input, // b x d1
     const torch::Tensor& random_numbers,
@@ -310,30 +455,35 @@ torch::Tensor rz_linear_forward_cudaXXX (
     int chunk_size
     )
 {
+    int M = input.size(0);
+    int K = input_dim;
+    int N = output_dim;
 
-    
     int64_t hashedWeightSize = hashed_weights.size(0);
     auto output = at::empty({input.size(0), output_dim}, input.options());
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(input.device().index());
 
-    int block = MAX_BLOCK_SIZE;
+    dim3 block = dim3(SMLS, SMLS, 1);
+
+    int total_number_of_blocks = (int)((M + SMLS - 1) / SMLS) * (int)((N + SMLS - 1) / SMLS) ;
     int grid = MAX_GRID_SIZE;
+    if (total_number_of_blocks < MAX_GRID_SIZE) {
+        grid = total_number_of_blocks;
+    }
 
     AT_DISPATCH_FLOATING_TYPES(hashed_weights.type(), "rz_linear_forward_cuda", ([&] {
-        //rz_linear_forward_cuda_kernel1<scalar_t><<<grid, block, (SMLS+1)*(SMLS+1)*3, stream>>>(
-        rz_linear_forward_cuda_kernelXXX<scalar_t><<<grid, block, 0, stream>>>(
+        rz_linear_forward_cuda_kernel_tiled<scalar_t><<<grid, block, 0, stream>>>(
             hashed_weights.packed_accessor32<scalar_t, 1, torch::RestrictPtrTraits>(),
             input.packed_accessor32<scalar_t, 2, torch::RestrictPtrTraits>(),
             output.packed_accessor32<scalar_t, 2, torch::RestrictPtrTraits>(),
             random_numbers.packed_accessor32<int64_t, 1, torch::RestrictPtrTraits>(),
-            input.size(0),
-            input_dim,
-            output_dim,
+            M,
+            K,
+            N,
             chunk_size,
             hashed_weights.size(0)
       );
     }));
-   cudaDeviceSynchronize();
    return output;
 }
 
@@ -350,14 +500,19 @@ torch::Tensor rz_linear_forward(
     const torch::Tensor& random_numbers,
     int input_dim,
     int output_dim,
-    int chunk_size
+    int chunk_size,
+    bool tiled
 )
 {
   
     CHECK_INPUT(hashed_weights);
     CHECK_INPUT(input);
     CHECK_INPUT(random_numbers);
-    return rz_linear_forward_cuda(hashed_weights, input, random_numbers, input_dim, output_dim, chunk_size);
+    if (tiled) {
+        return rz_linear_forward_cuda_tiled(hashed_weights, input, random_numbers, input_dim, output_dim, chunk_size);
+    } else {
+        return rz_linear_forward_cuda(hashed_weights, input, random_numbers, input_dim, output_dim, chunk_size);
+    }
 }
 
 
@@ -369,7 +524,8 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward_cuda (
     const torch::Tensor& random_numbers,
     int input_dim,
     int output_dim,
-    int chunk_size
+    int chunk_size,
+    bool tiled
     )
 {
     // we have to return two grad - w.r.t input and w.r.t hashed_weights
@@ -403,7 +559,8 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward_cuda (
             input_dim,
             output_dim,
             chunk_size,
-            hashed_weights.size(0)
+            hashed_weights.size(0),
+            tiled
       );
     }));
 
@@ -431,11 +588,10 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward_cuda (
             input_dim,
             output_dim,
             chunk_size,
-            hashed_weights.size(0)
+            hashed_weights.size(0),
+            tiled
       );
     }));
-   fflush(stdout);
-   cudaDeviceSynchronize();
    return std::tuple<torch::Tensor, torch::Tensor>(input_grad, weight_grad);
 }
 
@@ -448,7 +604,8 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward(
     const torch::Tensor& random_numbers,
     int input_dim,
     int output_dim,
-    int chunk_size
+    int chunk_size,
+    bool tiled
 )
 {
   
@@ -456,11 +613,63 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward(
     CHECK_INPUT(input);
     CHECK_INPUT(out_grad);
     CHECK_INPUT(random_numbers);
-    return rz_linear_backward_cuda(out_grad, hashed_weights, input, random_numbers, input_dim, output_dim, chunk_size);
+    return rz_linear_backward_cuda(out_grad, hashed_weights, input, random_numbers, input_dim, output_dim, chunk_size, tiled);
+}
+
+
+
+__global__ void rz_linear_idx(torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits>  random_numbers,
+                              torch::PackedTensorAccessor32<int64_t, 2, torch::RestrictPtrTraits>  IDX,
+                              int input_dim,
+                              int output_dim,
+                              int chunk_size,
+                              int weight_size,
+                              bool tiled) {
+    int ty = threadIdx.x; // will be used for y dim initialized as x
+    int bx = blockIdx.x;
+    int64_t loc;
+    for(; ty < output_dim; ty += blockDim.x) {
+        for (; bx < input_dim; bx += gridDim.x) {
+            if (tiled) {
+                loc = location_tiled(bx, ty, random_numbers, weight_size);
+            } else {
+                loc = location(bx, ty, chunk_size, random_numbers, weight_size);
+            }
+            IDX[bx][ty] =  loc;
+        }
+    } 
+}
+
+torch::Tensor rz_get_idx(torch::Tensor& random_numbers, int input_dim, int output_dim, int chunk_size, int weight_size,  bool tiled) {
+    CHECK_INPUT(random_numbers);
+
+    auto IDX = at::zeros({input_dim, output_dim}, random_numbers.options());
+
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream(random_numbers.device().index());
+    int block = MAX_BLOCK_SIZE;
+    int grid = MAX_GRID_SIZE;
+    if (block > output_dim) {
+        block = output_dim;
+    }
+    if (grid > input_dim) {
+        grid = input_dim;
+    }
+
+    rz_linear_idx<<<grid, block, 0, stream>>>(
+        random_numbers.packed_accessor32<int64_t, 1, torch::RestrictPtrTraits>(),
+        IDX.packed_accessor32<int64_t, 2, torch::RestrictPtrTraits>(),
+        input_dim,
+        output_dim,
+        chunk_size,
+        weight_size,
+        tiled
+        );
+    return IDX;
 }
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("forward", &rz_linear_forward, "robe_z_mm (CUDA)");
   m.def("backward", &rz_linear_backward, "robe_z_mm (CUDA)");
+  m.def("get_idx", &rz_get_idx, "robe_z_mm (CUDA) ");
 }

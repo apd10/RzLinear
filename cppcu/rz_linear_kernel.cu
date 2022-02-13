@@ -14,9 +14,11 @@
 #include <algorithm>
 #include <chrono>
 
-#define MAX_GRID_SIZE  8192
-#define SMLS 32  // BLOCK in tiled multiplication
-#define SHIFT 1
+#define MAX_GRID_SIZE  16384
+#define SMLS 16  // BLOCK in tiled multiplication
+#define TTILE 4 // per thread responsibility
+#define SMLST 64 // SMLS * TTILE
+#define SHIFT 3
 __device__ int64_t hash_func(int64_t a, int64_t b, int64_t *  random_numbers) {
     return (a * random_numbers[3] + b * random_numbers[2] + random_numbers[1]) % random_numbers[0];
 }
@@ -52,41 +54,75 @@ __global__ void rz_linear_forward_cuda_kernel(
     int chunk_size
 )
 {
-  int num_block_width = (N  + SMLS - 1) / SMLS;
-  int total_number_of_blocks = (int)((M + SMLS - 1) / SMLS) * (int)((N + SMLS - 1) / SMLS) ;
+  int num_block_width = (N  + SMLST - 1) / SMLST;
+  int total_number_of_blocks = (int)((M + SMLST - 1) / SMLST) * (int)((N + SMLST - 1) / SMLST) ;
   int block_idx = blockIdx.x;
   int block_x, block_y, tx, ty, gx, gy;
 
-  __shared__ float shareI[SMLS][SMLS + SHIFT];
-  __shared__ float shareM[SMLS][SMLS + SHIFT];
+  __shared__ float shareI[SMLST][SMLST + SHIFT];
+  __shared__ float shareM[SMLST][SMLST + SHIFT];
+  float val[TTILE][TTILE] = {0};
 
-  float val = 0;
+#pragma unroll
   for (; block_idx < total_number_of_blocks; block_idx += gridDim.x) { // outer loop if the output matrix is too large
     block_x = block_idx / num_block_width;
     block_y = block_idx % num_block_width;
     tx = threadIdx.x; ty = threadIdx.y;
-    gx = block_x * SMLS + tx;
-    gy = block_y * SMLS + ty;
-    val = 0;
-    for (int i = 0 ; i < (K + SMLS - 1) / SMLS ; i ++) {
-      if (i*SMLS + ty < K && gx < M) {
-        shareI[tx][ty] = input[gx * K  + i* SMLS + ty]; // row major (gx, i*SMLS+ty)
-      } else {
-        shareI[tx][ty] = 0.;
+    gx = block_x * SMLST + tx;
+    gy = block_y * SMLST + ty;
+
+#pragma unroll
+    for (int x_offset = 0; x_offset < TTILE; x_offset ++) {
+
+#pragma unroll
+      for (int y_offset = 0; y_offset < TTILE ; y_offset ++) {
+        val[x_offset][y_offset] = 0.;
       }
-      if ( i*SMLS + tx < K && gy < N) {
-        shareM[tx][ty] = weights[i* SMLS + tx + gy * K]; // coumn major (i*SMLS+tx, gy)
-      } else {
-        shareM[tx][ty]  = 0.;
+    }
+#pragma unroll
+    for (int i = 0 ; i < (K + SMLST - 1) / SMLST ; i ++) {
+      #pragma unroll
+      for (int x_offset_abs = 0; x_offset_abs < SMLST ; x_offset_abs += SMLS) {
+        #pragma unroll
+        for (int y_offset_abs = 0; y_offset_abs < SMLST ; y_offset_abs += SMLS) {
+          if (i*SMLST + ty + y_offset_abs < K && gx + x_offset_abs < M) {
+            shareI[tx + x_offset_abs][ty + y_offset_abs] = input[(gx + x_offset_abs) * K  + i* SMLST + ty + y_offset_abs]; // row major (gx, i*SMLS+ty)
+          } else {
+            shareI[tx + x_offset_abs][ty + y_offset_abs] = 0.;
+          }
+          if (i*SMLST + tx + x_offset_abs < K && gy + y_offset_abs < N) {
+            shareM[ty + y_offset_abs][tx + x_offset_abs]= weights[i* SMLST + (tx + x_offset_abs) + (gy + y_offset_abs) * K]; // coumn major (i*SMLS+tx, gy)
+          } else {
+            shareM[ty + y_offset_abs][tx + x_offset_abs]  = 0.;
+          }
+        }
       }
       __syncthreads();
-      for (int j = 0; j < SMLS; j ++ ) {
-        val += shareI[tx][j] * shareM[j][ty];
+
+#pragma unroll
+      for (int x_offset = 0; x_offset < TTILE; x_offset ++) {
+
+#pragma unroll
+        for (int y_offset = 0; y_offset < TTILE ; y_offset ++) {
+
+#pragma unroll
+          for (int j = 0; j < SMLST; j ++ ) {
+            val[x_offset][y_offset] += shareI[tx + x_offset*SMLS][j] * shareM[ty + y_offset*SMLS][j];
+          }
+        }
       }
       __syncthreads();
     }
-    if (gx < M && gy < N) {
-        output[gx*N + gy] = val;
+
+#pragma unroll
+    for (int x_offset = 0; x_offset < TTILE; x_offset ++) {
+
+#pragma unroll
+      for (int y_offset = 0; y_offset < TTILE ; y_offset ++) {
+        if ((gx + x_offset * SMLS) < M && (gy + y_offset * SMLS) < N) {
+          output[(gx + x_offset*SMLS)*N + (gy + y_offset * SMLS)] = val[x_offset][y_offset];
+        }
+      }
     }
   }
 }
@@ -104,7 +140,7 @@ void rz_linear_forward_cuda (
 {
     dim3 block = dim3(SMLS, SMLS, 1);
 
-    int total_number_of_blocks = (int)((M + SMLS - 1) / SMLS) * (int)((N + SMLS - 1) / SMLS) ;
+    int total_number_of_blocks = (int)((M + SMLST - 1) / SMLST) * (int)((N + SMLST - 1) / SMLST) ;
     int grid = MAX_GRID_SIZE;
     if (total_number_of_blocks < MAX_GRID_SIZE) {
         grid = total_number_of_blocks;
@@ -147,7 +183,7 @@ void verify(float * weights, float * input, float * output, int64_t * random_num
             for (int k=0; k < K;k++) {
                 val += input[i*K + k]  * weights[k + j * K];
             }
-            if ( abs(output[i*N + j] -  val) > 1e-3) {
+            if ( abs(output[i*N + j] -  val)  > 1e-5 * val) {
                 printf("mismatch @ (%d,%d) expected : %f got: %f\n", i, j, val, output[i*N+j]);
             }
         }
@@ -178,8 +214,8 @@ int main() {
   auto t_end  = std::chrono::high_resolution_clock::now();
 
   int M = 1024;
-  int K = 10240;
-  int N = 1024;
+  int K = 1024;
+  int N = 102400;
   int chunk_size = 2;
   printf("problem size : %d x %d x %d\n", M, K, N);
   
@@ -210,7 +246,8 @@ int main() {
   }
   t_end = std::chrono::high_resolution_clock::now();
   cudaMemcpy(h_O, d_O, M*N*sizeof(float), cudaMemcpyDeviceToHost);
-  printf("time taken by our call smls: %d grid: %d is %f (ms)\n", SMLS, MAX_GRID_SIZE, std::chrono::duration<double, std::milli>(t_end - t_start).count() / ITR);
+  printf("time taken by our call smls: %d smlst: %d grid: %d is %f (ms)\n", SMLS, SMLST, MAX_GRID_SIZE,
+                                std::chrono::duration<double, std::milli>(t_end - t_start).count() / ITR);
   //printf("verifying..\n");
   //verify(h_W, h_I, h_O, NULL, M, K, N, chunk_size);
   //printf("input\n");

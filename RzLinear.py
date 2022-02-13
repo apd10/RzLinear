@@ -12,17 +12,18 @@ import pdb
 class RzLinearFunction(torch.autograd.Function):
     @staticmethod
 
-    def forward(ctx, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size):
+    def forward(ctx, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled):
         '''
             read a chunk_size by performing lsh according to the lsh_mode,
             join chunks to create an embedding of size embedding_dim for each of the
             inputs
         '''
-        output = rz_linear.forward(hashed_weights, input_v, random_numbers,  input_dim, output_dim, chunk_size)
+        output = rz_linear.forward(hashed_weights, input_v, random_numbers,  input_dim, output_dim, chunk_size, tiled)
         ctx.save_for_backward(hashed_weights, input_v, random_numbers)
         ctx.input_dim =  input_dim
         ctx.output_dim = output_dim
         ctx.chunk_size =  chunk_size
+        ctx.tiled = tiled
         return output
 
     @staticmethod
@@ -31,19 +32,21 @@ class RzLinearFunction(torch.autograd.Function):
         input_dim = ctx.input_dim
         output_dim = ctx.output_dim
         chunk_size = ctx.chunk_size
-        in_grad, wt_grad = rz_linear.backward(grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size)
+        in_grad, wt_grad = rz_linear.backward(grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, ctx.tiled)
         return wt_grad, in_grad, None, None, None, None
-    '''
     @staticmethod
-    def forwardproxy(hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size):
-        output = rz_linear.forward(hashed_weights, input_v, random_numbers,  input_dim, output_dim, chunk_size)
+    def forwardproxy(hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled):
+        output = rz_linear.forward(hashed_weights, input_v, random_numbers,  input_dim, output_dim, chunk_size, tiled)
         return output
   
     @staticmethod
-    def backwardproxy(grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size):
-        in_grad, wt_grad = rz_linear.backward(grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size)
-        return wt_grad, in_grad
-    '''
+    def backwardproxy(grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled):
+        in_grad, wt_grad = rz_linear.backward(grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled)
+        return in_grad, wt_grad
+
+    @staticmethod
+    def get_idx(random_numbers, input_dim, output_dim, chunk_size, weight_size, tiled):
+        return rz_linear.get_idx(random_numbers, input_dim, output_dim, chunk_size, weight_size, tiled)
 
 class RzLinear(nn.Module):
     def __init__(
@@ -52,6 +55,7 @@ class RzLinear(nn.Module):
         output_dim: int,
         chunk_size: int,
         hashed_weight: torch.Tensor,
+        tiled = True,
         seed = 1024)->None:
         super(RzLinear, self).__init__()
 
@@ -61,16 +65,19 @@ class RzLinear(nn.Module):
         self.chunk_size = chunk_size
         self.weight = hashed_weight
         self.memory_size = hashed_weight.size(0)
+        self.tiled = tiled
 
         r = np.random.RandomState(seed)
         # first number is the prime, rest are random integers
-        random_numbers = np.concatenate([np.array([2038074743]), r.randint(0, 2038074743, (50,))]) # set of 50 random numbers to use
+        x = r.randint(0, 2038074743, (50,))
+        x = x + 1*(x%2==0);
+        random_numbers = np.concatenate([np.array([2038074743]), x]) # set of 50 random numbers to use
         self.random_numbers = Parameter(torch.from_numpy(random_numbers.astype(np.int64)), requires_grad=False)
         print("RandomNumbers: ", self.random_numbers[:5])
-        print("RzLinear: d1xd2: {}x{} chunk_size: {} weight_size: {}".format(self.input_dim, self.output_dim, self.chunk_size, self.weight.shape[0]))
+        print("RzLinear: d1xd2: {}x{} chunk_size: {} weight_size: {}  tiled: {}".format(self.input_dim, self.output_dim, self.chunk_size, self.weight.shape[0], self.tiled))
         
 
     def forward(self, input_v) -> torch.Tensor:
-        output_v =  RzLinearFunction.apply(self.weight, input_v, self.random_numbers, self.input_dim, self.output_dim, self.chunk_size)
+        output_v =  RzLinearFunction.apply(self.weight, input_v, self.random_numbers, self.input_dim, self.output_dim, self.chunk_size, self.tiled)
         return output_v
 
