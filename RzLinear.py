@@ -73,11 +73,22 @@ class RzLinear(nn.Module):
         x = x + 1*(x%2==0);
         random_numbers = np.concatenate([np.array([2038074743]), x]) # set of 50 random numbers to use
         self.random_numbers = Parameter(torch.from_numpy(random_numbers.astype(np.int64)), requires_grad=False)
+
+        # bias term
+        self.bias = Parameter(torch.zeros(self.output_dim, ))
+
         print("RandomNumbers: ", self.random_numbers[:5])
         print("RzLinear: d1xd2: {}x{} chunk_size: {} weight_size: {}  tiled: {}".format(self.input_dim, self.output_dim, self.chunk_size, self.weight.shape[0], self.tiled))
         
 
     def forward(self, input_v) -> torch.Tensor:
-        output_v =  RzLinearFunction.apply(self.weight, input_v, self.random_numbers, self.input_dim, self.output_dim, self.chunk_size, self.tiled)
+        dim_gt_2 = input_v.dim() > 2 
+        x = input_v
+        if (dim_gt_2):
+            shape = input_v.shape
+            x = input_v.view(-1, shape[-1])
+        output_v =  RzLinearFunction.apply(self.weight, x, self.random_numbers, self.input_dim, self.output_dim, self.chunk_size, self.tiled)
+        output_v = output_v + self.bias
+        if (dim_gt_2):
+            output_v = output_v.view(*shape[:-1], output_v.shape[-1])
         return output_v
-
