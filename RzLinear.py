@@ -33,7 +33,7 @@ class RzLinearFunction(torch.autograd.Function):
         output_dim = ctx.output_dim
         chunk_size = ctx.chunk_size
         in_grad, wt_grad = rz_linear.backward(grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, ctx.tiled)
-        return wt_grad, in_grad, None, None, None, None
+        return wt_grad, in_grad, None, None, None, None, None
     @staticmethod
     def forwardproxy(hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled):
         output = rz_linear.forward(hashed_weights, input_v, random_numbers,  input_dim, output_dim, chunk_size, tiled)
