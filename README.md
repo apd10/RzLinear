@@ -1,10 +1,13 @@
+Model compression - matrix multiply with compressed matrix using state-of-the-art ROBE-Z compression.
+
 Speed:
 1. This implementation is quite slow and a better implementation is being created for practical usage
 2. Update(Feb 22, 22) : Current implementation is 3x slower than complete matrix multiplication for large MM
 !! Faster implementation coming soon with measurements of forward and backward passes !!
 
+Notes:
+1. Use weight_size > 256 ( SMLS x SMLS) when using TILED=True
 
-Model compression - matrix multiply with compressed matrix using state-of-the-art ROBE-Z compression.
 
 Sample Usage:
 
@@ -15,7 +18,7 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-weight_size = 100
+weight_size = 1000
 input_dim = 1000
 output_dim = 1000
 chunk_size = 2
