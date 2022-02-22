@@ -123,18 +123,16 @@ __global__ void rz_linear_backward_cuda_kernel_input(
             bool tiled
 )
 {
-  int in_x = blockIdx.x;
-  int in_y = threadIdx.y;
   scalar_t val = 0;
   int num_chunks = (input_dim + chunk_size - 1)/ chunk_size;
   int64_t idx = 0;
 
   
   #pragma unroll
-  for (; in_x < batch; in_x+= gridDim.x) {
+  for (int in_x = blockIdx.x; in_x < batch; in_x+= gridDim.x) {
 
   #pragma unroll
-    for(; in_y < input_dim; in_y += blockDim.y) {
+    for(int in_y = threadIdx.y; in_y < input_dim; in_y += blockDim.y) {
 
       #pragma unroll
        for(int k=0; k< output_dim;k++) {
@@ -168,18 +166,16 @@ __global__ void rz_linear_backward_cuda_kernel_weight(
             bool tiled
 )
 {
-  int wt_x = blockIdx.x;
-  int wt_y = threadIdx.y;
   scalar_t val = 0;
   int num_chunks = (input_dim + chunk_size - 1)/ chunk_size;
   int64_t loc = 0;
   //printf("%d %d (%d, %d)\n", wt_x, wt_y, input_dim, output_dim);
   
   #pragma unroll
-  for (; wt_x < input_dim; wt_x+= gridDim.x) {
+  for (int wt_x = blockIdx.x; wt_x < input_dim; wt_x+= gridDim.x) {
 
     #pragma unroll
-    for(; wt_y < output_dim; wt_y += blockDim.y) {
+    for(int wt_y = threadIdx.y; wt_y < output_dim; wt_y += blockDim.y) {
         val = 0;
 
         #pragma unroll
@@ -625,11 +621,9 @@ __global__ void rz_linear_idx(torch::PackedTensorAccessor32<int64_t, 1, torch::R
                               int chunk_size,
                               int weight_size,
                               bool tiled) {
-    int ty = threadIdx.x; // will be used for y dim initialized as x
-    int bx = blockIdx.x;
     int64_t loc;
-    for(; ty < output_dim; ty += blockDim.x) {
-        for (; bx < input_dim; bx += gridDim.x) {
+    for(int ty = threadIdx.x; ty < output_dim; ty += blockDim.x) {
+        for (int bx = blockIdx.x; bx < input_dim; bx += gridDim.x) {
             if (tiled) {
                 loc = location_tiled(bx, ty, random_numbers, weight_size);
             } else {
