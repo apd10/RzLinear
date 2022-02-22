@@ -1,4 +1,7 @@
 !! NOTE : THis implementation is quite slow and a better implementation is being created for practical usage !!
+!! NOTE Update(Feb 22, 22) : Current implementation is 3x slower than complete matrix multiplication for large MM!!
+!! Faster implementation coming soon !!
+
 Model compression - matrix multiply with compressed matrix using state-of-the-art ROBE-Z compression.
 
 Sample Usage:
