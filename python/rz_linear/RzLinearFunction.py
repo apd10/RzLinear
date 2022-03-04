@@ -1,0 +1,40 @@
+import torch
+import rz_linear
+
+
+class RzLinearFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input: torch.tensor, hashed_weight: torch.tensor,
+                random_numbers: torch.tensor, output_dim, chunk_size):
+        '''
+            Read a chunk_size by performing lsh according to the lsh_mode,
+            join chunks to create an embedding of size embedding_dim for each of the inputs.
+
+            Args:
+                input (Tensor): (N, *, input_features), where N is the batch size
+                hashed_weight (Tensor): (compress_size) weight tensor
+                random_numbers (Tensor): (4), (R3 * k_index + R2 * n_index  + R1) % R0
+                output_dim: N
+                chunk_size: The size of the minimal hash unit. It is unused for now
+        '''
+        assert(random_numbers.size() == 4)
+        output = rz_linear.forward(
+            input, hashed_weight, random_numbers, output_dim, chunk_size)
+        ctx.save_for_backward(input, hashed_weight, random_numbers)
+        ctx.output_dim = output_dim
+        ctx.chunk_size = chunk_size
+        return output
+
+    @staticmethod
+    def backward(ctx, grad):
+        input, hashed_weight, random_numbers = ctx.saved_variables
+        output_dim = ctx.output_dim
+        chunk_size = ctx.chunk_size
+        output_grad, weight_grad = rz_linear.backward(
+            grad, input, hashed_weight, random_numbers, output_dim, chunk_size)
+        return output_grad, weight_grad, None, None, None
+
+    @staticmethod
+    def get_idx(input: torch.tensor, hashed_weight: torch.tensor,
+                random_numbers: torch.tensor, output_dim, chunk_size):
+        return rz_linear.get_idx(input, hashed_weight, random_numbers,  output_dim, chunk_size)
