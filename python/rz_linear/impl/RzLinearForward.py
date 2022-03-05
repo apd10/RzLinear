@@ -3,7 +3,7 @@ import triton
 import triton.language as tl
 
 
-def rzlinear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
+def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                         M: int, K: int, N: int, H: int,
                         R3: int, R2: int, R1: int, R0: int) -> torch.tensor:
     '''
@@ -33,7 +33,7 @@ def rzlinear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
         triton.cdiv(M, META['BLOCK_SIZE_M']) *
         triton.cdiv(N, META['BLOCK_SIZE_N']),
     )
-    rzlinear_forward_kernel[grid](
+    rz_linear_forward_kernel[grid](
         input, hashed_weight, output,
         M, N, K, H,
         R3, R2, R1, R0,
@@ -50,7 +50,7 @@ def rzlinear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
 
 
 @triton.jit
-def rzlinear_forward_kernel(
+def rz_linear_forward_kernel(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
     # Matrix dimensions

@@ -1,8 +1,7 @@
-from re import S
 import torch
 from torch.nn.parameter import Parameter
 
-import RzLinearFunction
+from . import RzLinearFunction
 
 
 class RzLinear(torch.nn.Module):
@@ -16,7 +15,8 @@ class RzLinear(torch.nn.Module):
     '''
 
     def __init__(self, output_dim: int, hash_size: int = 1024, chunk_size: int = 1,
-                 hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = True) -> None:
+                 hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = True,
+                 dtype: torch.dtype = torch.float32) -> None:
         '''
             A Linear layer using ROBE-Z compression
 
@@ -27,6 +27,7 @@ class RzLinear(torch.nn.Module):
                 hashed_weight (Tensor): If hashed_weight is not None, we ignore hash_size and reuse hashed_weight.
                 seed (int): The random seed to init random numbers
                 bias (bool): If True, adds a learnable bias to the output
+                dtype (float): The default data type of parameters
         '''
         super(RzLinear, self).__init__()
 
@@ -41,17 +42,19 @@ class RzLinear(torch.nn.Module):
 
         # weight
         if hashed_weight is None:
-            self._hashed_weight = Parameter(torch.arange(self._hash_size))
+            self._hashed_weight = Parameter(
+                torch.arange(self._hash_size).type(dtype))
         else:
             self._hashed_weight = Parameter(hashed_weight)
 
         # bias term
         if bias:
-            self._bias = Parameter(torch.zeros(self._output_dim,))
+            self._bias = Parameter(torch.zeros(self._output_dim, dtype=dtype))
 
-    def _generate_random_number(self, seed: int):
+    def _generate_random_numbers(self, seed: int):
         torch.manual_seed(seed)
-        x = torch.randint(0, RzLinear.P, (RzLinear.R,)).type(torch.int32)
+        x = torch.randint(0, RzLinear.P, (RzLinear.R,)).type(
+            torch.int32).requires_grad_(False)
         x = x + x % 2
         return torch.cat([torch.tensor([RzLinear.P], dtype=torch.int32), x])
 
