@@ -7,8 +7,12 @@ device = torch.device('cuda:0')
 
 
 def test_module():
-    rz = RzLinear(output_dim=1024).to(device)
+    rz = RzLinear(output_dim=1024, hash_size=(1024*1024//16)).to(device)
     assert(rz._output_dim == 1024)
+    input = torch.rand((1024, 1024), device=device)
+    output = rz(input)
+    assert(output.shape[0] == 1024)
+    assert(output.shape[1] == 1024)
 
 
 def test_get_idx():
