@@ -28,40 +28,43 @@ def test_get_idx():
 
     M = 1024
     K = 1024
-    N = 10240
-    H = 10240 * 1024 // 16
+    N = 1024
+    H = 1024 * 1024 // 16
     BLOCK_SIZE_K = 128
     BLOCK_SIZE_N = 128
     rz = RzLinear(output_dim=N, hash_size=H).to(device)
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
+
     weight_tl = rz_linear_idx_tl(
-        rz._hashed_weight, BLOCK_SIZE_K, BLOCK_SIZE_N, K, N, H, R3, R2, R1, R0)
+        rz._hashed_weight, K, N, H, R3, R2, R1, R0, BLOCK_SIZE_K, BLOCK_SIZE_N)
     weight_torch = torch_get_idx(rz._hashed_weight)
+
     assert(torch.allclose(weight_tl, weight_torch, rtol=1e-3) is True)
 
 
 def test_forward():
-    M = 256
-    K = 256
-    N = 256
-    H = 256 * 256 // 16
-    BLOCK_SIZE_K = 32
-    BLOCK_SIZE_N = 32
+    M = 1024
+    K = 1024
+    N = 1024
+    H = 1024 * 1024 // 16
+    BLOCK_SIZE_K = 64
+    BLOCK_SIZE_N = 64
 
     input = torch.rand((M, K), device=device)
     rz = RzLinear(output_dim=N, hash_size=H).to(device)
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 
+    # Disable tf32 in testing
+    rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0,
+                                     allow_tf32=False, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE_M=1)
+    weight = rz_linear_idx_tl(rz._hashed_weight, K, N,
+                              H, R3, R2, R1, R0, BLOCK_SIZE_K, BLOCK_SIZE_N)
     torch.backends.cuda.matmul.allow_tf32 = False
-    rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R3, R2,
-                                     R1, R0, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N)
-    weight = rz_linear_idx_tl(
-        rz._hashed_weight, BLOCK_SIZE_K, BLOCK_SIZE_N, K, N, H, R3, R2, R1, R0)
     torch_output = torch.mm(input, weight)
-    print(rz_output)
-    print(torch_output)
+
+    assert(torch.allclose(rz_output, torch_output, rtol=1e-3) is True)
 
 
 def test_backward():

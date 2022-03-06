@@ -4,26 +4,25 @@ import triton.language as tl
 
 
 def rz_linear_idx_tl(hashed_weight: torch.tensor,
-                     BLOCK_SIZE_K: int, BLOCK_SIZE_N: int,
                      K: int, N: int, H: int,
                      R3: int, R2: int, R1: int, R0: int,
-                     num_warps: int = 4) -> torch.tensor:
+                     BLOCK_SIZE_K: int = 32, BLOCK_SIZE_N: int = 32) -> torch.tensor:
     '''
       Reconstruct the original weight tensor using the hashed weight
 
       Args:
         hashed_weight (Tensor): (1xH) The compressed weight tensor
-        BLOCK_SIZE_K, BLOCK_SIZE_N
-        M, K, N, H (int): matrix dimensions
-        R3, R2, R1, R0 (long): random numbers
+        M, K, N, H (int): Matrix dimensions
+        R3, R2, R1, R0 (int): Random numbers
+        BLOCK_SIZE_K, BLOCK_SIZE_N (int): Workload of each GPU block
 
       Returns:
         output (Tensor): A KxN tensor
     '''
     # TODO(Keren): make rzlinear more general for any shape
     assert (H > (BLOCK_SIZE_K * BLOCK_SIZE_N))
-    assert (N % BLOCK_SIZE_N == 0)
     assert (K % BLOCK_SIZE_K == 0)
+    assert (N % BLOCK_SIZE_N == 0)
 
     # allocates output
     weight = torch.empty((K, N), device=hashed_weight.device,
@@ -39,7 +38,7 @@ def rz_linear_idx_tl(hashed_weight: torch.tensor,
         K, N, H,
         R3, R2, R1, R0,
         weight.stride(0), weight.stride(1),
-        num_warps=num_warps,
+        num_warps=4,
         BLOCK_SIZE_N=BLOCK_SIZE_N,
         BLOCK_SIZE_K=BLOCK_SIZE_K
     )

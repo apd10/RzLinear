@@ -5,7 +5,7 @@ from .RzLinearFunction import RzLinearFunction
 
 
 class RzLinear(torch.nn.Module):
-    # TODO(Keren): triton int64?
+    # TODO(Keren): triton int64 overflow bug?
     #P = 2038074743
     P = 56598313
     R = 4
@@ -39,7 +39,7 @@ class RzLinear(torch.nn.Module):
         self._hashed_weight = hashed_weight
         self._bias = bias
 
-        # random numbers
+        # random numbers are always on the CPU
         self._random_numbers = self._generate_random_numbers(seed)
 
         # weight
@@ -58,9 +58,19 @@ class RzLinear(torch.nn.Module):
         x = torch.randint(0, RzLinear.P, (RzLinear.R - 1,)).type(
             torch.int32).requires_grad_(False)
         x = x + x % 2
-        return torch.cat([torch.tensor([RzLinear.P], dtype=torch.int32), x])
+        x = torch.cat([torch.tensor([RzLinear.P], dtype=torch.int32), x])
+        return x.requires_grad_(False).cpu()
 
     def forward(self, x) -> torch.Tensor:
+        '''
+            RzLinear forward function, which computes rzlinear and bias (if any)
+
+            Args:
+                input (Tensor): (N, *, input_dim), where N is the batch size
+
+            Returns:
+                output (Tensor): (N, output_dim)
+        '''
         assert(len(x.shape) >= 2)
         if len(x.shape) > 2:
             x = x.view(-1, x.shape[-1])
