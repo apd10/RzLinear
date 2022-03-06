@@ -7,7 +7,8 @@ device = torch.device('cuda:0')
 
 
 def test_module():
-    rz = RzLinear(output_dim=1024, hash_size=(1024*1024//16)).to(device)
+    rz = RzLinear(input_dim=1024, output_dim=1024).to(device)
+    assert(rz._input_dim == 1024)
     assert(rz._output_dim == 1024)
     input = torch.rand((1024, 1024), device=device)
     output = rz(input)
@@ -33,10 +34,10 @@ def test_get_idx():
     M = 1024
     K = 1024
     N = 1024
-    H = 1024 * 1024 // 16
     BLOCK_SIZE_K = 128
     BLOCK_SIZE_N = 128
-    rz = RzLinear(output_dim=N, hash_size=H).to(device)
+    rz = RzLinear(input_dim=K, output_dim=N).to(device)
+    H = int(1024 * 1024 * rz._compress_ratio)
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 
@@ -51,12 +52,12 @@ def test_forward():
     M = 1024
     K = 1024
     N = 1024
-    H = 1024 * 1024 // 16
     BLOCK_SIZE_K = 64
     BLOCK_SIZE_N = 64
 
     input = torch.rand((M, K), device=device)
-    rz = RzLinear(output_dim=N, hash_size=H).to(device)
+    rz = RzLinear(input_dim=K, output_dim=N).to(device)
+    H = int(1024 * 1024 * rz._compress_ratio)
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 

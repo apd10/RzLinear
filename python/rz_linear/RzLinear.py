@@ -16,15 +16,16 @@ class RzLinear(torch.nn.Module):
             R (int): Number of random numbers
     '''
 
-    def __init__(self, output_dim: int, hash_size: int = 1024, chunk_size: int = 1,
+    def __init__(self, input_dim: int, output_dim: int, compress_ratio: float = 0.0625, chunk_size: int = 1,
                  hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = False,
                  dtype: torch.dtype = torch.float32) -> None:
         '''
             A Linear layer using ROBE-Z compression
 
             Args:
-                output_dim (int): The size of output tensor
-                hash_size (int): The dimension of parameters
+                input_dim (int): Number of features in each input sample 
+                output_dim (int): Number of features in each output sample
+                compress_ratio (float): The compress ratio of the hashed_weight comparing to (input_dim, output_dim)
                 chunk_size (int): The size of the minimal hash unit. It is unused for now
                 hashed_weight (Tensor): If hashed_weight is not None, we ignore hash_size and reuse hashed_weight.
                 seed (int): The random seed to init random numbers
@@ -33,8 +34,9 @@ class RzLinear(torch.nn.Module):
         '''
         super(RzLinear, self).__init__()
 
+        self._input_dim = input_dim
         self._output_dim = output_dim
-        self._hash_size = hash_size
+        self._compress_ratio = compress_ratio
         self._chunk_size = chunk_size
         self._hashed_weight = hashed_weight
         self._bias = bias
@@ -45,7 +47,7 @@ class RzLinear(torch.nn.Module):
         # weight
         if hashed_weight is None:
             self._hashed_weight = Parameter(
-                torch.arange(self._hash_size).type(dtype))
+                torch.arange(int(input_dim * output_dim * compress_ratio)).type(dtype))
         else:
             self._hashed_weight = Parameter(hashed_weight)
 

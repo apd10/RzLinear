@@ -37,8 +37,7 @@ def benchmark(M, N, K, provider):
         ms, min_ms, max_ms = triton.testing.do_bench(
             lambda: torch.matmul(a, b))
     if provider == 'rzlinear':
-        H = N * K // 16
-        rz = RzLinear(output_dim=N, hash_size=H).to('cuda')
+        rz = RzLinear(input_dim=K, output_dim=N).to('cuda')
         ms, min_ms, max_ms = triton.testing.do_bench(lambda: rz(a))
 
     def perf(ms): return (2 * M * N * K * 1e-12) / (ms * 1e-3)
