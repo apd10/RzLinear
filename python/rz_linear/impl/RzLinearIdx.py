@@ -6,7 +6,8 @@ import triton.language as tl
 def rz_linear_idx_tl(hashed_weight: torch.tensor,
                      BLOCK_SIZE_K: int, BLOCK_SIZE_N: int,
                      K: int, N: int, H: int,
-                     R3: int, R2: int, R1: int, R0: int, num_warps: int = 4) -> torch.tensor:
+                     R3: int, R2: int, R1: int, R0: int,
+                     num_warps: int = 4) -> torch.tensor:
     '''
       Reconstruct the original weight tensor using the hashed weight
 
@@ -14,7 +15,7 @@ def rz_linear_idx_tl(hashed_weight: torch.tensor,
         hashed_weight (Tensor): (1xH) The compressed weight tensor
         BLOCK_SIZE_K, BLOCK_SIZE_N
         M, K, N, H (int): matrix dimensions
-        R3, R2, R1, R0 (int): random numbers
+        R3, R2, R1, R0 (long): random numbers
 
       Returns:
         output (Tensor): A KxN tensor
@@ -25,16 +26,17 @@ def rz_linear_idx_tl(hashed_weight: torch.tensor,
     assert (K % BLOCK_SIZE_K == 0)
 
     # allocates output
-    weight = torch.empty((N, K), device=hashed_weight.device,
+    weight = torch.empty((K, N), device=hashed_weight.device,
                          dtype=hashed_weight.dtype)
 
     def grid(META): return (
-        triton.cdiv(N, META['BLOCK_SIZE_N']) *
-        triton.cdiv(K, META['BLOCK_SIZE_K']),
+        triton.cdiv(K, META['BLOCK_SIZE_K']) *
+        triton.cdiv(N, META['BLOCK_SIZE_N']),
     )
+
     rz_linear_idx_kernel[grid](
         hashed_weight, weight,
-        H,
+        K, N, H,
         R3, R2, R1, R0,
         weight.stride(0), weight.stride(1),
         num_warps=num_warps,
@@ -48,7 +50,7 @@ def rz_linear_idx_tl(hashed_weight: torch.tensor,
 def rz_linear_idx_kernel(
     bh_ptr, b_ptr,
     # Matrix dimensions
-    H,
+    K, N, H,
     # Random numbers
     R3, R2, R1, R0,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -59,17 +61,17 @@ def rz_linear_idx_kernel(
     BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr
 ):
     pid = tl.program_id(axis=0)
-    pid_k = tl.cdiv(pid, BLOCK_SIZE_N)
-    pid_n = pid % BLOCK_SIZE_N
+    grid_n = tl.cdiv(N, BLOCK_SIZE_N)
+    pid_k = pid // grid_n
+    pid_n = pid % grid_n
 
     # Compute hash
-    bh_offset = bh_ptr + \
-        tl.arange(0, BLOCK_SIZE_K)[
-            :, None] * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[None, :]
-    bh_ptrs = bh_offset + ((pid_k * R3 + pid_n * R2 +
-                           R1) % R0) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-    b_ptrs = b_ptr + tl.arange(0, BLOCK_SIZE_K)[:, None] * stride_bk + tl.arange(
-        0, BLOCK_SIZE_N)[None, :] * stride_bn
+    bh_offset = bh_ptr + tl.arange(0, BLOCK_SIZE_K * BLOCK_SIZE_N)
+    bh_ptrs = bh_offset + ((pid_k * R3 + pid_n * R2 + R1) %
+                           R0) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+    b_ptrs = b_ptr + pid_k * BLOCK_SIZE_K * stride_bk + pid_n * BLOCK_SIZE_N * stride_bn + \
+        tl.arange(0, BLOCK_SIZE_K)[:, None] * \
+        stride_bk + tl.arange(0, BLOCK_SIZE_N)[None, :]
 
-    bh = tl.load(bh_ptrs)
+    bh = tl.load(tl.reshape(bh_ptrs, (BLOCK_SIZE_N, BLOCK_SIZE_K)))
     tl.store(b_ptrs, bh)

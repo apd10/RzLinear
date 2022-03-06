@@ -5,7 +5,9 @@ from . import RzLinearFunction
 
 
 class RzLinear(torch.nn.Module):
-    P = 2038074743
+    # TODO(Keren): triton int64?
+    #P = 2038074743
+    P = 56598313
     R = 4
 
     '''
