@@ -1,6 +1,7 @@
 import torch
 from rz_linear import RzLinear
 from rz_linear.impl.RzLinearIdx import rz_linear_idx_tl
+from rz_linear.impl.RzLinearForward import rz_linear_forward_tl
 
 device = torch.device('cuda:0')
 
@@ -41,7 +42,26 @@ def test_get_idx():
 
 
 def test_forward():
-    pass
+    M = 256
+    K = 256
+    N = 256
+    H = 256 * 256 // 16
+    BLOCK_SIZE_K = 32
+    BLOCK_SIZE_N = 32
+
+    input = torch.rand((M, K), device=device)
+    rz = RzLinear(output_dim=N, hash_size=H).to(device)
+    R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
+    ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
+
+    torch.backends.cuda.matmul.allow_tf32 = False
+    rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R3, R2,
+                                     R1, R0, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N)
+    weight = rz_linear_idx_tl(
+        rz._hashed_weight, BLOCK_SIZE_K, BLOCK_SIZE_N, K, N, H, R3, R2, R1, R0)
+    torch_output = torch.mm(input, weight)
+    print(rz_output)
+    print(torch_output)
 
 
 def test_backward():

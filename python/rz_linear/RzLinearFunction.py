@@ -19,9 +19,12 @@ class RzLinearFunction(torch.autograd.Function):
                 output_dim: N
                 chunk_size: The size of the minimal hash unit. It is unused for now
         '''
-        assert(random_numbers.size() == 4)
+        assert(random_numbers.numel() == 4)
+        R3, R2, R1, R0 = random_numbers[3].item(), random_numbers[2].item(
+        ), random_numbers[1].item(), random_numbers[0].item()
+        M, K, N, H = input.shape[0], input.shape[1], output_dim, hashed_weight.shape[0]
         output = rz_linear_forward_tl(
-            input, hashed_weight, random_numbers, output_dim, chunk_size)
+            input, hashed_weight, M, K, N, H, R3, R2, R1, R0)
         ctx.save_for_backward(input, hashed_weight, random_numbers)
         ctx.output_dim = output_dim
         ctx.chunk_size = chunk_size

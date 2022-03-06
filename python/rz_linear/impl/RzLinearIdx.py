@@ -66,12 +66,13 @@ def rz_linear_idx_kernel(
     pid_n = pid % grid_n
 
     # Compute hash
-    bh_offset = bh_ptr + tl.arange(0, BLOCK_SIZE_K * BLOCK_SIZE_N)
+    bh_offset = bh_ptr + tl.arange(0, BLOCK_SIZE_K)[:, None] * \
+        BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[None, :]
     bh_ptrs = bh_offset + ((pid_k * R3 + pid_n * R2 + R1) %
                            R0) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
     b_ptrs = b_ptr + pid_k * BLOCK_SIZE_K * stride_bk + pid_n * BLOCK_SIZE_N * stride_bn + \
         tl.arange(0, BLOCK_SIZE_K)[:, None] * \
         stride_bk + tl.arange(0, BLOCK_SIZE_N)[None, :]
 
-    bh = tl.load(tl.reshape(bh_ptrs, (BLOCK_SIZE_N, BLOCK_SIZE_K)))
+    bh = tl.load(bh_ptrs)
     tl.store(b_ptrs, bh)

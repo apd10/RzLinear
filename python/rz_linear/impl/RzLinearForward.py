@@ -4,8 +4,10 @@ import triton.language as tl
 
 
 def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
-                        M: int, K: int, N: int, H: int,
-                        R3: int, R2: int, R1: int, R0: int) -> torch.tensor:
+                         M: int, K: int, N: int, H: int,
+                         R3: int, R2: int, R1: int, R0: int,
+                         BLOCK_SIZE_M: int = 32,
+                         BLOCK_SIZE_N: int = 32, BLOCK_SIZE_K: int = 32, GROUP_SIZE_M: int = 4) -> torch.tensor:
     '''
       Compute input_tensor x hashed_weight and return an output tensor
 
@@ -19,13 +21,11 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
         output (Tensor): A MxN tensor
     '''
     # TODO(Keren): make rzlinear more general for any shape
-    BLOCK_SIZE_N=64
-    BLOCK_SIZE_K=32,
     assert (H > (BLOCK_SIZE_K * BLOCK_SIZE_N))
     assert (K % 32 == 0)
 
     # allocates output
-    output = torch.empty((M, N), device=input.device, dtype=input.dtype)
+    output = torch.zeros((M, N), device=input.device, dtype=input.dtype)
 
     # TODO(Keren): select the best configuration without expensive autotuning
     # 1D launch kernel where each block gets its own program.
@@ -41,10 +41,10 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
         output.stride(0), output.stride(1),
         num_warps=4,
         num_stages=3,
-        BLOCK_SIZE_M=128,
+        BLOCK_SIZE_M=BLOCK_SIZE_M,
         BLOCK_SIZE_N=BLOCK_SIZE_N,
         BLOCK_SIZE_K=BLOCK_SIZE_K,
-        GROUP_SIZE_M=4
+        GROUP_SIZE_M=GROUP_SIZE_M
     )
     return output
 
@@ -115,10 +115,10 @@ def rz_linear_forward_kernel(
         a = tl.load(a_ptrs)
         b = tl.load(b_ptrs)
         # We accumulate along the K dimension
-        accumulator += tl.dot(a, b)
+        accumulator += tl.dot(a, b, allow_tf32=False)
         # Advance the ptrs to the next K block
         a_ptrs += BLOCK_SIZE_K * stride_ak
-        b_ptrs = b_offset + (k * R3 + pid_n * R2 +
+        b_ptrs = b_offset + (((k // BLOCK_SIZE_K) + 1) * R3 + pid_n * R2 +
                              R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
     # you can fuse arbitrary activation functions here

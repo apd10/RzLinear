@@ -1,7 +1,7 @@
 import torch
 from torch.nn.parameter import Parameter
 
-from . import RzLinearFunction
+from .RzLinearFunction import RzLinearFunction
 
 
 class RzLinear(torch.nn.Module):
@@ -17,7 +17,7 @@ class RzLinear(torch.nn.Module):
     '''
 
     def __init__(self, output_dim: int, hash_size: int = 1024, chunk_size: int = 1,
-                 hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = True,
+                 hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = False,
                  dtype: torch.dtype = torch.float32) -> None:
         '''
             A Linear layer using ROBE-Z compression
@@ -55,7 +55,7 @@ class RzLinear(torch.nn.Module):
 
     def _generate_random_numbers(self, seed: int):
         torch.manual_seed(seed)
-        x = torch.randint(0, RzLinear.P, (RzLinear.R,)).type(
+        x = torch.randint(0, RzLinear.P, (RzLinear.R - 1,)).type(
             torch.int32).requires_grad_(False)
         x = x + x % 2
         return torch.cat([torch.tensor([RzLinear.P], dtype=torch.int32), x])
