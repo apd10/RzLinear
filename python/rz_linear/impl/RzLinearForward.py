@@ -15,8 +15,10 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
       Args:
         input (Tensor): A MxK tensor
         hashed_weight (Tensor): A 1xH tensor
-        M, K, N, H: matrix dimensions
-        R3, R2, R1, R0: random numbers
+        M, K, N, H (int): Matrix dimensions
+        R3, R2, R1, R0 (int): Random numbers
+        allow_tf32 (bool): If tensor core is allowed
+        BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, GROUP_SIZE_M: Matrix tiling parameters for performance tunning
 
       Returns:
         output (Tensor): A MxN tensor
