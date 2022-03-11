@@ -4,27 +4,27 @@ import triton
 import triton.language as tl
 
 
-def rzlinear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, output_grad: torch.tensor,
-                         M: int, K: int, N: int, H: int,
-                         R3: int, R2: int, R1: int, R0: int,
-                         allow_tf32: bool = True,
-                         BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                         GROUP_SIZE_M: int = 4) -> tuple(torch.tensor, torch.tensor):
-    input_grad = rzlinear_backward_input_grad_tl(output_grad, hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32,
-                                                 BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                                                 GROUP_SIZE_M=GROUP_SIZE_M)
-    weight_grad = rzlinear_backward_weight_grad_tl(input, output_grad, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32,
-                                                   BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                                                   GROUP_SIZE_M=GROUP_SIZE_M)
+def rz_linear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, output_grad: torch.tensor,
+                          M: int, K: int, N: int, H: int,
+                          R3: int, R2: int, R1: int, R0: int,
+                          allow_tf32: bool = True,
+                          BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
+                          GROUP_SIZE_M: int = 4) -> Tuple[torch.tensor, torch.tensor]:
+    input_grad = rz_linear_backward_input_grad_tl(output_grad, hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32,
+                                                  BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                                  GROUP_SIZE_M=GROUP_SIZE_M)
+    weight_grad = rz_linear_backward_weight_grad_tl(input, output_grad, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32,
+                                                    BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                                    GROUP_SIZE_M=GROUP_SIZE_M)
     return input_grad, weight_grad
 
 
-def rzlinear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.tensor,
-                                     M: int, K: int, N: int, H: int,
-                                     R3: int, R2: int, R1: int, R0: int,
-                                     allow_tf32: bool = True,
-                                     BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                                     GROUP_SIZE_M: int = 4) -> torch.tensor:
+def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.tensor,
+                                      M: int, K: int, N: int, H: int,
+                                      R3: int, R2: int, R1: int, R0: int,
+                                      allow_tf32: bool = True,
+                                      BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
+                                      GROUP_SIZE_M: int = 4) -> torch.tensor:
     '''
         Compute input^T x output_grad and return a weight_grad tensor
 
@@ -51,7 +51,7 @@ def rzlinear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.ten
         triton.cdiv(K, META['BLOCK_SIZE_K']) *
         triton.cdiv(N, META['BLOCK_SIZE_N']),
     )
-    rzlinear_backward_weight_grad_kernel[grid](
+    rz_linear_backward_weight_grad_kernel[grid](
         input, output_grad, hashed_weight_grad,
         M, N, K, H,
         input.stride(0), input.stride(1),
@@ -69,7 +69,7 @@ def rzlinear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.ten
 
 
 @triton.jit
-def rzlinear_backward_weight_grad_kernel(
+def rz_linear_backward_weight_grad_kernel(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
     # Matrix dimensions
@@ -89,12 +89,12 @@ def rzlinear_backward_weight_grad_kernel(
     pass
 
 
-def rzlinear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: torch.tensor,
-                                    M: int, K: int, N: int, H: int,
-                                    R3: int, R2: int, R1: int, R0: int,
-                                    allow_tf32: bool = True,
-                                    BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                                    GROUP_SIZE_M: int = 4) -> torch.tensor:
+def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: torch.tensor,
+                                     M: int, K: int, N: int, H: int,
+                                     R3: int, R2: int, R1: int, R0: int,
+                                     allow_tf32: bool = True,
+                                     BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
+                                     GROUP_SIZE_M: int = 4) -> torch.tensor:
     '''
         Compute output_grad x hashed_weight^T and return an input_grad tensor
 
@@ -121,7 +121,7 @@ def rzlinear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: to
         triton.cdiv(M, META['BLOCK_SIZE_M']) *
         triton.cdiv(K, META['BLOCK_SIZE_K']),
     )
-    rzlinear_backward_input_grad_kernel[grid](
+    rz_linear_backward_input_grad_kernel[grid](
         output_grad, hashed_weight, input_grad,
         M, N, K, H,
         output_grad.stride(0), output_grad.stride(1),
@@ -139,7 +139,7 @@ def rzlinear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: to
 
 
 @triton.jit
-def rzlinear_backward_input_grad_kernel(
+def rz_linear_backward_input_grad_kernel(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
     # Matrix dimensions
