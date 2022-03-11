@@ -47,7 +47,7 @@ def triton_tn_kernel(
     # We accumulate into a `[BLOCK_SIZE_K, BLOCK_SIZE_N]` block
     # of fp32 values for higher accuracy.
     # `accumulator` will be converted back to fp16 after the loop
-    accumulator = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
+    c = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
     for _ in range(0, M//BLOCK_SIZE_M):
         # Note that for simplicity, we don't apply a mask here.
         # This means that if K is not a multiple of BLOCK_SIZE_K,
@@ -56,14 +56,10 @@ def triton_tn_kernel(
         a = tl.load(a_ptrs)
         b = tl.load(b_ptrs)
         # We accumulate along the K dimension
-        accumulator += tl.dot(a, b, allow_tf32=allow_tf32)
+        c += tl.dot(a, b, allow_tf32=allow_tf32)
         # Advance the ptrs to the next K block
         a_ptrs += BLOCK_SIZE_M * stride_am
         b_ptrs += BLOCK_SIZE_M * stride_bm
-
-    # you can fuse arbitrary activation functions here
-    # while the accumulator is still in FP32!
-    c = accumulator.to(tl.float32)
 
     # -----------------------------------------------------------
     # Write back the block of the output matrix C
