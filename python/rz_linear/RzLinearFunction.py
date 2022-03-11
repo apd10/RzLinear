@@ -27,7 +27,7 @@ class RzLinearFunction(torch.autograd.Function):
         ), random_numbers[1].item(), random_numbers[0].item()
         M, K, N, H = input.shape[0], input.shape[1], output_dim, hashed_weight.shape[0]
         # TODO(Keren): select the best configuration without expensive autotuning
-        # BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, GROUP_SIZE_M = rz_linear_forward_config_tl
+        # BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, GROUP_SIZE = rz_linear_forward_config_tl
         output = rz_linear_forward_tl(
             input, hashed_weight, M, K, N, H, R3, R2, R1, R0)
         ctx.save_for_backward(input, hashed_weight, random_numbers)

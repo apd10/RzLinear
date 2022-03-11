@@ -8,7 +8,7 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                          R3: int, R2: int, R1: int, R0: int,
                          allow_tf32: bool = True,
                          BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                         GROUP_SIZE_M: int = 4) -> torch.tensor:
+                         GROUP_SIZE: int = 4) -> torch.tensor:
     '''
       Compute input_tensor x hashed_weight and return an output tensor
 
@@ -18,7 +18,7 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
         M, K, N, H (int): Matrix dimensions
         R3, R2, R1, R0 (int): Random numbers
         allow_tf32 (bool): If tensor core is allowed
-        BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, GROUP_SIZE_M: Matrix tiling parameters for performance tunning
+        BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, GROUP_SIZE: Matrix tiling parameters for performance tunning
 
       Returns:
         output (Tensor): A MxN tensor
@@ -46,7 +46,7 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
         BLOCK_SIZE_M=BLOCK_SIZE_M,
         BLOCK_SIZE_N=BLOCK_SIZE_N,
         BLOCK_SIZE_K=BLOCK_SIZE_K,
-        GROUP_SIZE_M=GROUP_SIZE_M
+        GROUP_SIZE=GROUP_SIZE
     )
     return output
 
@@ -67,7 +67,7 @@ def rz_linear_forward_kernel(
     allow_tf32: tl.constexpr,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
-    GROUP_SIZE_M: tl.constexpr
+    GROUP_SIZE: tl.constexpr
 ):
     """Kernel for computing the matmul C = A x B.
     A has shape (M, K), B has shape (K, N) and C has shape (M, N)
@@ -79,10 +79,10 @@ def rz_linear_forward_kernel(
     pid = tl.program_id(axis=0)
     num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
-    num_pid_in_group = GROUP_SIZE_M * num_pid_n
+    num_pid_in_group = GROUP_SIZE * num_pid_n
     group_id = pid // num_pid_in_group
-    first_pid_m = group_id * GROUP_SIZE_M
-    group_size_m = min(num_pid_m - first_pid_m, GROUP_SIZE_M)
+    first_pid_m = group_id * GROUP_SIZE
+    group_size_m = min(num_pid_m - first_pid_m, GROUP_SIZE)
     pid_m = first_pid_m + (pid % group_size_m)
     pid_n = (pid % num_pid_in_group) // group_size_m
 
