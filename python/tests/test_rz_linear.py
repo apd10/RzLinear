@@ -38,7 +38,7 @@ def test_get_idx():
     BLOCK_SIZE_K = 32
     BLOCK_SIZE_N = 128
     rz = RzLinear(input_dim=K, output_dim=N).to(device)
-    H = int(1024 * 1024 * rz._compress_ratio)
+    H = int(K * N * rz._compress_ratio)
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 
@@ -58,7 +58,7 @@ def test_forward():
 
     input = torch.rand((M, K), device=device)
     rz = RzLinear(input_dim=K, output_dim=N).to(device)
-    H = int(1024 * 1024 * rz._compress_ratio)
+    H = int(K * N * rz._compress_ratio)
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 
@@ -98,7 +98,7 @@ def test_backward_weight():
     input = torch.rand((M, K), device=device)
     output = torch.rand((M, N), device=device)
     rz = RzLinear(input_dim=K, output_dim=N).to(device)
-    H = int(1024 * 1024 * rz._compress_ratio)
+    H = int(K * N * rz._compress_ratio)
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 
@@ -118,12 +118,12 @@ def test_backward_input():
     K = 1024
     N = 1024
     BLOCK_SIZE_K = 64
-    BLOCK_SIZE_N = 32
+    BLOCK_SIZE_N = 64
     BLOCK_SIZE_M = 32
 
     output = torch.rand((M, N), device=device)
     rz = RzLinear(input_dim=K, output_dim=N).to(device)
-    H = int(1024 * 1024 * rz._compress_ratio)
+    H = int(K * N * rz._compress_ratio)
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 

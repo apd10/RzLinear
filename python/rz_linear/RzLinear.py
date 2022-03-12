@@ -7,7 +7,8 @@ from .RzLinearFunction import RzLinearFunction
 class RzLinear(torch.nn.Module):
     # TODO(Keren): triton int64 overflow bug?
     #P = 2038074743
-    P = 56598313
+    #P = 56598313
+    P = 28813
     R = 4
 
     '''
