@@ -58,8 +58,7 @@ def rz_linear_forward_kernel(
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
-    # element in a particular dimension. E.g. stride_am is how much to increase a_ptr
-    # by to get the element one row down (A has M rows)
+    # element in a particular dimension.
     stride_am, stride_ak,
     stride_cm, stride_cn,
     # Random numbers
@@ -72,10 +71,6 @@ def rz_linear_forward_kernel(
     """Kernel for computing the matmul C = A x B.
     A has shape (M, K), B has shape (K, N) and C has shape (M, N)
     """
-    # -----------------------------------------------------------
-    # Map program ids `pid` to the block of C it should compute.
-    # This is done in a grouped ordering to promote L2 data reuse
-    # See above `L2 Cache Optimizations` section for details
     pid = tl.program_id(axis=0)
     num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
@@ -86,35 +81,27 @@ def rz_linear_forward_kernel(
     pid_m = first_pid_m + (pid % group_size_m)
     pid_n = (pid % num_pid_in_group) // group_size_m
 
-    # ----------------------------------------------------------
-    # Create pointers for the first blocks of A and B.
-    # We will advance this pointer as we move in the K direction
-    # and accumulate
-    # a_ptrs is a block of [BLOCK_SIZE_M, BLOCK_SIZE_K] pointers
-    # b_ptrs is a block of [BLOCK_SIZE_K, BLOCK_SIZE_n] pointers
-    # see above `Pointer Arithmetics` section for details
+    # [BLOCK_SIZE_M, BLOCK_SIZE_K]
     offs_am = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_k = tl.arange(0, BLOCK_SIZE_K)
     a_ptrs = a_ptr + (offs_am[:, None] * stride_am +
                       offs_k[None, :] * stride_ak)
 
     # Compute hash
+    # [H]
     b_offset = b_ptr + offs_k[:, None] * \
         BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[None, :]
     b_ptrs = b_offset + (0 * R3 + pid_n * R2 +
                          R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
-    # -----------------------------------------------------------
-    # Iterate to compute a block of the C matrix
-    # We accumulate into a `[BLOCK_SIZE_M, BLOCK_SIZE_N]` block
-    # of fp32 values for higher accuracy.
-    # `accumulator` will be converted back to fp16 after the loop
+    # [BLOCK_SIZE_M, BLOCK_SIZE_N]
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for k in range(0, K//BLOCK_SIZE_K):
         # Note that for simplicity, we don't apply a mask here.
         # This means that if K is not a multiple of BLOCK_SIZE_K,
         # this will access out-of-bounds memory and produce an
         # error or (worse!) incorrect results.
+        # TODO(Keren): Add K checks
         a = tl.load(a_ptrs)
         b = tl.load(b_ptrs)
         # We accumulate along the K dimension

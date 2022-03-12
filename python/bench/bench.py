@@ -2,7 +2,10 @@ import torch
 
 import triton
 import triton.language as tl
+import rz_linear
 from rz_linear import RzLinear
+from rz_linear.impl import RzLinearBackward
+from rz_linear.RzLinearFunction import controls
 
 
 @triton.testing.perf_report(
@@ -20,11 +23,11 @@ from rz_linear import RzLinear
         styles=[('green', '-'), ('red', 'dashed')],
         ylabel="TFLOPS",  # label name for the y-axis
         # name for the plot. Used also as a file name for saving the plot.
-        plot_name="matmul-performance",
+        plot_name="forward-performance",
         args={},
     )
 )
-def benchmark(M, N, K, provider):
+def benchmark_forward(M, N, K, provider):
     # XXX(Keren): workaround, triton does not support tuple values for now
     if M == 10240:
         M = 1024
@@ -44,4 +47,54 @@ def benchmark(M, N, K, provider):
     return perf(ms), perf(max_ms), perf(min_ms)
 
 
-benchmark.run(show_plots=True, print_data=True)
+@triton.testing.perf_report(
+    triton.testing.Benchmark(
+        # argument names to use as an x-axis for the plot
+        x_names=['M', 'N', 'K'],
+        x_vals=[1024, 10240],  # different possible values for `x_name`
+        # argument name whose value corresponds to a different line in the plot
+        line_arg='provider',
+        # possible values for `line_arg``
+        line_vals=['cublas', 'rzlinear'],
+        # label name for the lines
+        line_names=['cuBLAS', 'RZLinear'],
+        # line styles
+        styles=[('green', '-'), ('red', 'dashed')],
+        ylabel="TFLOPS",  # label name for the y-axis
+        # name for the plot. Used also as a file name for saving the plot.
+        plot_name="backward-weight-performance",
+        args={},
+    )
+)
+def benchmark_backward_weight(M, N, K, provider):
+    # XXX(Keren): workaround, triton does not support tuple values for now
+    if M == 10240:
+        M = 1024
+        N = 10240
+        K = 1024
+    a = torch.randn((M, K), device='cuda', dtype=torch.float32)
+    b = torch.randn((K, N), device='cuda', dtype=torch.float32)
+    c = torch.randn((M, N), device='cuda', dtype=torch.float32)
+
+    if provider == 'cublas':
+        ms, min_ms, max_ms = triton.testing.do_bench(
+            lambda: torch.matmul(a.t(), c))
+    if provider == 'rzlinear':
+        rz = RzLinear(input_dim=K, output_dim=N).to('cuda')
+        output = rz(a)
+        ms, min_ms, max_ms = triton.testing.do_bench(
+            lambda: output.backward(b, retain_graph=True))
+
+    def perf(ms): return (2 * M * N * K * 1e-12) / (ms * 1e-3)
+    return perf(ms), perf(max_ms), perf(min_ms)
+
+
+print('TF32')
+benchmark_forward.run(show_plots=True, print_data=True)
+benchmark_backward_weight.run(show_plots=True, print_data=True)
+
+print('Float32')
+torch.backends.cuda.matmul.allow_tf32 = False
+controls['triton_allow_tf32'] = False
+benchmark_forward.run(show_plots=True, print_data=True)
+benchmark_backward_weight.run(show_plots=True, print_data=True)
