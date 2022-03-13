@@ -166,7 +166,7 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
     rz_linear_backward_input_grad_kernel[grid](
         output_grad, hashed_weight, input_grad,
         M, N, K, H,
-        output_grad.stride(1), output_grad.stride(0),
+        output_grad.stride(0), output_grad.stride(1),
         input_grad.stride(0), input_grad.stride(1),
         R3=R3, R2=R2, R1=R1, R0=R0,
         allow_tf32=allow_tf32,
@@ -197,31 +197,31 @@ def rz_linear_backward_input_grad_kernel(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    """Kernel for computing the matmul C = (B x A^T)^T.
+    """Kernel for computing the matmul C = (A x B^T)
     A has shape (M, N), B has shape H->(K, N) and C has shape (M, K)
     """
     pid = tl.program_id(axis=0)
     num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
     num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
-    pid_k = pid // num_pid_m
-    pid_m = pid % num_pid_m
+    pid_m = pid // num_pid_k
+    pid_k = pid % num_pid_k
 
-    # [BLOCK_SIZE_N, BLOCK_SIZE_M]
+    # [BLOCK_SIZE_M, BLOCK_SIZE_N]
     offs_am = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_an = tl.arange(0, BLOCK_SIZE_N)
-    a_ptrs = a_ptr + offs_an[:, None] * \
-        stride_am + offs_am[None, :] * stride_an
+    a_ptrs = a_ptr + offs_am[:, None] * \
+        stride_am + offs_an[None, :] * stride_an
 
-    # [BLOCK_SIZE_K, BLOCK_SIZE_N]
+    # [BLOCK_SIZE_N, BLOCK_SIZE_K]
     # Compute hash
-    offs_k = tl.arange(0, BLOCK_SIZE_K)
-    b_offset = b_ptr + offs_k[:, None] * \
-        BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[None, :]
+    b_offset = b_ptr + \
+        tl.arange(0, BLOCK_SIZE_N)[
+            :, None] + tl.arange(0, BLOCK_SIZE_K)[None, :] * BLOCK_SIZE_N
     b_ptrs = b_offset + (pid_k * R3 + 0 * R2 +
                          R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
-    # [BLOCK_SIZE_K, BLOCK_SIZE_M]
-    c = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_M), dtype=tl.float32)
+    # [BLOCK_SIZE_M, BLOCK_SIZE_K]
+    c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_K), dtype=tl.float32)
     for n in range(0, N//BLOCK_SIZE_N):
         # Note that for simplicity, we don't apply a mask here.
         # This means that if N is not a multiple of BLOCK_SIZE_N,
@@ -231,18 +231,18 @@ def rz_linear_backward_input_grad_kernel(
         a = tl.load(a_ptrs)
         b = tl.load(b_ptrs)
         # We accumulate along the N dimension
-        c += tl.dot(b, a, allow_tf32=allow_tf32)
+        c += tl.dot(a, b, allow_tf32=allow_tf32)
         # Advance the ptrs to the next N block
-        a_ptrs += BLOCK_SIZE_N * stride_am
+        a_ptrs += BLOCK_SIZE_N * stride_an
         b_ptrs = b_offset + (pid_k * R3 + (n + 1) * R2 +
                              R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
     # -----------------------------------------------------------
     # Write back the block of the output matrix C
-    # [BLOCK_SIZE_K, BLOCK_SIZE_M] -> [BLOCK_SIZE_M, BLOCK_SIZE_K]
+    # [BLOCK_SIZE_M, BLOCK_SIZE_K]
     offs_ck = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
     offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-    c_ptrs = c_ptr + stride_ck * \
-        offs_ck[:, None] + stride_cm * offs_cm[None, :]
-    c_mask = (offs_ck[:, None] < K) & (offs_cm[None, :] < M)
+    c_ptrs = c_ptr + stride_cm * \
+        offs_cm[:, None] + stride_ck * offs_ck[None, :]
+    c_mask = (offs_cm[:, None] < M) & (offs_ck[None, :] < K)
     tl.store(c_ptrs, c, mask=c_mask)

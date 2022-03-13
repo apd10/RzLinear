@@ -129,7 +129,9 @@ def benchmark_backward_input(M, N, K, provider):
         ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
         ms, min_ms, max_ms = triton.testing.do_bench(
             lambda: rz_linear_backward_input_grad_tl(
-                c, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=controls['triton_allow_tf32']))
+                c, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=controls[
+                    'triton_allow_tf32'],
+                BLOCK_SIZE_K=64, BLOCK_SIZE_M=128, BLOCK_SIZE_N=32))
 
     def perf(ms): return (2 * M * N * K * 1e-12) / (ms * 1e-3)
     return perf(ms), perf(max_ms), perf(min_ms)
