@@ -60,7 +60,7 @@ class RzLinear(torch.nn.Module):
         x = torch.randint(0, RzLinear.P, (RzLinear.R - 1,)).type(
             torch.int32).requires_grad_(False)
         # XXX(Keren): triton int64 overflow bug
-        x[x > 4096] = x[x > 4096] // 4096
+        x[x > 4096] = torch.div(x[x > 4096], 4096, rounding_mode='trunc')
         x = x + x % 2
         x = torch.cat([torch.tensor([RzLinear.P], dtype=torch.int32), x])
         return x.requires_grad_(False).cpu()
