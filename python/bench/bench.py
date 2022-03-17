@@ -7,12 +7,13 @@ from rz_linear import RzLinear
 from rz_linear.impl.RzLinearBackward import rz_linear_backward_input_grad_tl, rz_linear_backward_weight_grad_tl
 from rz_linear.RzLinearFunction import controls
 
+configs = [(32,1024,1024),(32,10240,10240),(128,1024,1024),(128,10240,10240),(1024,1024,1024),(1024,10240,10240)]
 
 @triton.testing.perf_report(
     triton.testing.Benchmark(
         # argument names to use as an x-axis for the plot
         x_names=['M', 'N', 'K'],
-        x_vals=[1024, 10240],  # different possible values for `x_name`
+        x_vals=list(range(len(configs))),  # different possible values for `x_name`
         # argument name whose value corresponds to a different line in the plot
         line_arg='provider',
         # possible values for `line_arg``
@@ -29,10 +30,7 @@ from rz_linear.RzLinearFunction import controls
 )
 def benchmark_forward(M, N, K, provider):
     # XXX(Keren): workaround, triton does not support tuple values for now
-    if M == 10240:
-        M = 1024
-        N = 10240
-        K = 1024
+    M, K, N = configs[M]
     a = torch.randn((M, K), device='cuda', dtype=torch.float32)
     b = torch.randn((K, N), device='cuda', dtype=torch.float32)
 
@@ -139,12 +137,12 @@ def benchmark_backward_input(M, N, K, provider):
 
 print('TF32')
 benchmark_forward.run(show_plots=True, print_data=True)
-benchmark_backward_weight.run(show_plots=True, print_data=True)
-benchmark_backward_input.run(show_plots=True, print_data=True)
+#benchmark_backward_weight.run(show_plots=True, print_data=True)
+#benchmark_backward_input.run(show_plots=True, print_data=True)
 
 print('Float32')
 torch.backends.cuda.matmul.allow_tf32 = False
 controls['triton_allow_tf32'] = False
 benchmark_forward.run(show_plots=True, print_data=True)
-benchmark_backward_weight.run(show_plots=True, print_data=True)
-benchmark_backward_input.run(show_plots=True, print_data=True)
+#benchmark_backward_weight.run(show_plots=True, print_data=True)
+#benchmark_backward_input.run(show_plots=True, print_data=True)

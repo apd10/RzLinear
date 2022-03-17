@@ -6,6 +6,7 @@ from .impl.RzLinearBackward import rz_linear_backward_tl
 
 controls = {}
 controls['triton_allow_tf32'] = True
+controls['triton_allow_autotune'] = True
 
 
 class RzLinearFunction(torch.autograd.Function):

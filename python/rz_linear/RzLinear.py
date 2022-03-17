@@ -5,10 +5,9 @@ from .RzLinearFunction import RzLinearFunction
 
 
 class RzLinear(torch.nn.Module):
-    # TODO(Keren): triton int64 overflow bug?
+    # XXX(Keren): triton int64 overflow bug
     #P = 2038074743
-    #P = 56598313
-    P = 28813
+    P = 13703077
     R = 4
 
     '''
@@ -60,6 +59,8 @@ class RzLinear(torch.nn.Module):
         torch.manual_seed(seed)
         x = torch.randint(0, RzLinear.P, (RzLinear.R - 1,)).type(
             torch.int32).requires_grad_(False)
+        # XXX(Keren): triton int64 overflow bug
+        x[x > 4096] = x[x > 4096] // 4096
         x = x + x % 2
         x = torch.cat([torch.tensor([RzLinear.P], dtype=torch.int32), x])
         return x.requires_grad_(False).cpu()

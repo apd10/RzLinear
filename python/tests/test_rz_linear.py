@@ -64,7 +64,7 @@ def test_forward():
 
     # Disable tf32 in testing
     rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0,
-                                     allow_tf32=False, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
+                                     allow_tf32=False, allow_autotune=False, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
     weight = rz_linear_idx_tl(rz._hashed_weight, K, N,
                               H, R3, R2, R1, R0, BLOCK_SIZE_K, BLOCK_SIZE_N)
     torch.backends.cuda.matmul.allow_tf32 = False
