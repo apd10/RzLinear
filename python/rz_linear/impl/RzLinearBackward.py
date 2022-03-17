@@ -7,13 +7,13 @@ import triton.language as tl
 def rz_linear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, output_grad: torch.tensor,
                           M: int, K: int, N: int, H: int,
                           R3: int, R2: int, R1: int, R0: int,
-                          allow_tf32: bool = True,
+                          allow_tf32: bool = True, allow_autotune: bool = False,
                           BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
                           GROUP_SIZE: int = 4) -> Tuple[torch.tensor, torch.tensor]:
-    input_grad = rz_linear_backward_input_grad_tl(output_grad, hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32,
+    input_grad = rz_linear_backward_input_grad_tl(output_grad, hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                   BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                                   GROUP_SIZE=GROUP_SIZE)
-    weight_grad = rz_linear_backward_weight_grad_tl(input, output_grad, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32,
+    weight_grad = rz_linear_backward_weight_grad_tl(input, output_grad, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                     BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                                     GROUP_SIZE=GROUP_SIZE)
     return input_grad, weight_grad
@@ -22,9 +22,9 @@ def rz_linear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, outp
 def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.tensor,
                                       M: int, K: int, N: int, H: int,
                                       R3: int, R2: int, R1: int, R0: int,
-                                      allow_tf32: bool = True,
+                                      allow_tf32: bool = True, allow_autotune: bool = True,
                                       BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                                      GROUP_SIZE: int = 4) -> torch.tensor:
+                                      GROUP_SIZE: int = 8) -> torch.tensor:
     '''
         Compute input^T x output_grad and return a weight_grad tensor
 
@@ -39,9 +39,8 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
         Returns:
             hashed_weight_grad (Tensor): A 1xH tensor
     '''
-    assert (
-        M % 32 == 0
-    ), "We don't check memory-out-of-bounds with M so M must be divisible by BLOCK_SIZE_M"
+    assert (K % 4 == 0)
+    assert (N % 4 == 0)
     # allocates output
     hashed_weight_grad = torch.zeros(
         (H), device=output_grad.device, dtype=output_grad.dtype)
@@ -51,25 +50,229 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
         triton.cdiv(K, META['BLOCK_SIZE_K']) *
         triton.cdiv(N, META['BLOCK_SIZE_N']),
     )
-    rz_linear_backward_weight_grad_kernel[grid](
-        input, output_grad, hashed_weight_grad,
-        M, N, K, H,
-        input.stride(1), input.stride(0),
-        output_grad.stride(0), output_grad.stride(1),
-        R3=R3, R2=R2, R1=R1, R0=R0,
-        allow_tf32=allow_tf32,
-        num_warps=4,
-        num_stages=3,
-        BLOCK_SIZE_M=BLOCK_SIZE_M,
-        BLOCK_SIZE_N=BLOCK_SIZE_N,
-        BLOCK_SIZE_K=BLOCK_SIZE_K,
-        GROUP_SIZE=GROUP_SIZE
-    )
+
+    if allow_tf32:
+        assert (M % 32 == 0)
+    else:
+        assert (M % 8 == 0)
+
+    if allow_autotune:
+        if allow_tf32:
+            rz_linear_backward_weight_grad_kernel_tf32[grid](
+                input, output_grad, hashed_weight_grad,
+                M, N, K, H,
+                input.stride(1), input.stride(0),
+                output_grad.stride(0), output_grad.stride(1),
+                R3=R3, R2=R2, R1=R1, R0=R0,
+                GROUP_SIZE=GROUP_SIZE
+            )
+        else:
+            rz_linear_backward_weight_grad_kernel_fp32[grid](
+                input, output_grad, hashed_weight_grad,
+                M, N, K, H,
+                input.stride(1), input.stride(0),
+                output_grad.stride(0), output_grad.stride(1),
+                R3=R3, R2=R2, R1=R1, R0=R0,
+                GROUP_SIZE=GROUP_SIZE
+            )
+    else:
+        rz_linear_backward_weight_grad_kernel_notune[grid](
+            input, output_grad, hashed_weight_grad,
+            M, N, K, H,
+            input.stride(1), input.stride(0),
+            output_grad.stride(0), output_grad.stride(1),
+            R3=R3, R2=R2, R1=R1, R0=R0,
+            allow_tf32=allow_tf32,
+            GROUP_SIZE=GROUP_SIZE,
+            BLOCK_SIZE_K=BLOCK_SIZE_K,
+            BLOCK_SIZE_M=BLOCK_SIZE_M,
+            BLOCK_SIZE_N=BLOCK_SIZE_N
+        )
+
     return hashed_weight_grad
 
 
+@triton.autotune(
+    configs=[
+        # basic configs for compute-bound matmuls
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=8),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 32,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 32,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 16}, num_stages=2, num_warps=4),
+    ],
+    key=['M', 'N', 'K'],
+)
 @triton.jit
-def rz_linear_backward_weight_grad_kernel(
+def rz_linear_backward_weight_grad_kernel_fp32(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_ak,
+    stride_bm, stride_bn,
+    # Random numbers
+    R3, R2, R1, R0,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+                                        stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
+                                        R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=False,
+                                        BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                        GROUP_SIZE=GROUP_SIZE)
+
+
+@triton.autotune(
+    configs=[
+        # basic configs for compute-bound matmuls
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=2, num_warps=8),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=2, num_warps=8),
+        triton.Config({'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_M': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_M': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_M': 32}, num_stages=2, num_warps=4),
+    ], key=['M', 'N', 'K'],
+)
+@triton.jit
+def rz_linear_backward_weight_grad_kernel_tf32(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_ak,
+    stride_bm, stride_bn,
+    # Random numbers
+    R3, R2, R1, R0,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+                                        stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
+                                        R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=True,
+                                        BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                        GROUP_SIZE=GROUP_SIZE)
+
+
+@triton.jit
+def rz_linear_backward_weight_grad_kernel_notune(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_ak,
+    stride_bm, stride_bn,
+    # Random numbers
+    R3, R2, R1, R0,
+    allow_tf32: tl.constexpr,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+                                        stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
+                                        R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=allow_tf32,
+                                        BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                        GROUP_SIZE=GROUP_SIZE)
+
+
+@triton.jit
+def rz_linear_backward_weight_grad_core(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
     # Matrix dimensions
@@ -91,8 +294,12 @@ def rz_linear_backward_weight_grad_kernel(
     pid = tl.program_id(axis=0)
     num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
     num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
-    pid_k = pid // num_pid_n
-    pid_n = pid % num_pid_n
+    num_pid_in_group = GROUP_SIZE * num_pid_n
+    group_id = pid // num_pid_in_group
+    first_pid_k = group_id * GROUP_SIZE
+    group_size_k = min(num_pid_k - first_pid_k, GROUP_SIZE)
+    pid_k = first_pid_k + (pid % group_size_k)
+    pid_n = (pid % num_pid_in_group) // group_size_k
 
     # [BLOCK_SIZE_K, BLOCK_SIZE_M]
     offs_ak = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
@@ -134,7 +341,7 @@ def rz_linear_backward_weight_grad_kernel(
 def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: torch.tensor,
                                      M: int, K: int, N: int, H: int,
                                      R3: int, R2: int, R1: int, R0: int,
-                                     allow_tf32: bool = True,
+                                     allow_tf32: bool = True, allow_autotune: bool = True,
                                      BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
                                      GROUP_SIZE: int = 4) -> torch.tensor:
     '''
@@ -151,37 +358,250 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
         Returns:
             input_grad (Tensor): A MxK tensor
     '''
-    assert (
-        N % 32 == 0
-    ), "We don't check memory-out-of-bounds with N so N must be divisible by BLOCK_SIZE_N"
+    assert (M % 4 == 0)
+    assert (K % 4 == 0)
     # allocates output
     input_grad = torch.empty(
         (M, K), device=output_grad.device, dtype=output_grad.dtype)
+
+    if allow_tf32:
+        assert (N % 32 == 0)
+    else:
+        assert (N % 8 == 0)
 
     # 1D launch kernel where each block gets its own program.
     def grid(META): return (
         triton.cdiv(M, META['BLOCK_SIZE_M']) *
         triton.cdiv(K, META['BLOCK_SIZE_K']),
     )
-    rz_linear_backward_input_grad_kernel[grid](
-        output_grad, hashed_weight, input_grad,
-        M, N, K, H,
-        output_grad.stride(0), output_grad.stride(1),
-        input_grad.stride(0), input_grad.stride(1),
-        R3=R3, R2=R2, R1=R1, R0=R0,
-        allow_tf32=allow_tf32,
-        num_warps=4,
-        num_stages=3,
-        BLOCK_SIZE_M=BLOCK_SIZE_M,
-        BLOCK_SIZE_N=BLOCK_SIZE_N,
-        BLOCK_SIZE_K=BLOCK_SIZE_K,
-        GROUP_SIZE=GROUP_SIZE
-    )
+
+    if allow_autotune:
+        if allow_tf32:
+            rz_linear_backward_input_grad_kernel_tf32[grid](
+                output_grad, hashed_weight, input_grad,
+                M, N, K, H,
+                output_grad.stride(0), output_grad.stride(1),
+                input_grad.stride(0), input_grad.stride(1),
+                R3=R3, R2=R2, R1=R1, R0=R0,
+                GROUP_SIZE=GROUP_SIZE
+            )
+        else:
+            rz_linear_backward_input_grad_kernel_fp32[grid](
+                output_grad, hashed_weight, input_grad,
+                M, N, K, H,
+                output_grad.stride(0), output_grad.stride(1),
+                input_grad.stride(0), input_grad.stride(1),
+                R3=R3, R2=R2, R1=R1, R0=R0,
+                GROUP_SIZE=GROUP_SIZE
+            )
+    else:
+        rz_linear_backward_input_grad_kernel_notune[grid](
+            output_grad, hashed_weight, input_grad,
+            M, N, K, H,
+            output_grad.stride(0), output_grad.stride(1),
+            input_grad.stride(0), input_grad.stride(1),
+            R3=R3, R2=R2, R1=R1, R0=R0,
+            allow_tf32=allow_tf32,
+            num_warps=4,
+            num_stages=3,
+            BLOCK_SIZE_M=BLOCK_SIZE_M,
+            BLOCK_SIZE_N=BLOCK_SIZE_N,
+            BLOCK_SIZE_K=BLOCK_SIZE_K,
+            GROUP_SIZE=GROUP_SIZE
+        )
     return input_grad
 
 
+@triton.autotune(
+    configs=[
+        # basic configs for compute-bound matmuls
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=8),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 32,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 32,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 16}, num_stages=2, num_warps=4),
+    ],
+    key=['M', 'N', 'K'],
+)
 @triton.jit
-def rz_linear_backward_input_grad_kernel(
+def rz_linear_backward_input_grad_kernel_fp32(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_an,
+    stride_cm, stride_ck,
+    # Random numbers
+    R3, R2, R1, R0,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    rz_linear_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr,
+                                       M=M, N=N, K=K, H=H,
+                                       stride_am=stride_am, stride_an=stride_an,
+                                       stride_cm=stride_cm, stride_ck=stride_ck,
+                                       R3=R3, R2=R2, R1=R1, R0=R0,
+                                       allow_tf32=False,
+                                       BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                       GROUP_SIZE=GROUP_SIZE)
+
+
+@triton.autotune(
+    configs=[
+        # basic configs for compute-bound matmuls
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=8),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=3, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=2, num_warps=8),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=2, num_warps=8),
+        triton.Config({'BLOCK_SIZE_M': 256, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 256,
+                      'BLOCK_SIZE_N': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 128,
+                      'BLOCK_SIZE_N': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=2, num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_K': 64,
+                      'BLOCK_SIZE_N': 32}, num_stages=2, num_warps=4),
+    ], key=['M', 'N', 'K'],
+)
+@triton.jit
+def rz_linear_backward_input_grad_kernel_tf32(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_an,
+    stride_cm, stride_ck,
+    # Random numbers
+    R3, R2, R1, R0,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    rz_linear_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr,
+                                       M=M, N=N, K=K, H=H,
+                                       stride_am=stride_am, stride_an=stride_an,
+                                       stride_cm=stride_cm, stride_ck=stride_ck,
+                                       R3=R3, R2=R2, R1=R1, R0=R0,
+                                       allow_tf32=True,
+                                       BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                       GROUP_SIZE=GROUP_SIZE)
+
+
+@triton.jit
+def rz_linear_backward_input_grad_kernel_notune(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_an,
+    stride_cm, stride_ck,
+    # Random numbers
+    R3, R2, R1, R0,
+    allow_tf32: tl.constexpr,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    rz_linear_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr,
+                                       M=M, N=N, K=K, H=H,
+                                       stride_am=stride_am, stride_an=stride_an,
+                                       stride_cm=stride_cm, stride_ck=stride_ck,
+                                       R3=R3, R2=R2, R1=R1, R0=R0,
+                                       allow_tf32=allow_tf32,
+                                       BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                       GROUP_SIZE=GROUP_SIZE)
+
+
+@triton.jit
+def rz_linear_backward_input_grad_core(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
     # Matrix dimensions

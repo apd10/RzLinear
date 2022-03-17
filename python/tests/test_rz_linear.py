@@ -63,8 +63,8 @@ def test_forward():
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 
     # Disable tf32 in testing
-    rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0,
-                                     allow_tf32=False, allow_autotune=False, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
+    rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=False,
+                                     allow_autotune=False, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
     weight = rz_linear_idx_tl(rz._hashed_weight, K, N,
                               H, R3, R2, R1, R0, BLOCK_SIZE_K, BLOCK_SIZE_N)
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -107,7 +107,7 @@ def test_backward_weight():
 
     # Disable tf32 in testing
     rz_weight = rz_linear_backward_weight_grad_tl(
-        input, output, M, K, N, H, R3, R2, R1, R0, allow_tf32=False,
+        input, output, M, K, N, H, R3, R2, R1, R0, allow_tf32=False, allow_autotune=False,
         BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
 
     assert(torch.allclose(rz_weight, torch_weight, rtol=1e-3) is True)
@@ -135,7 +135,7 @@ def test_backward_input():
 
     # Disable tf32 in testing
     rz_input = rz_linear_backward_input_grad_tl(
-        output, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=False,
+        output, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=False, allow_autotune=False,
         BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
 
     assert(torch.allclose(rz_input, torch_input, rtol=1e-3) is True)

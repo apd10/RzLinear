@@ -44,7 +44,6 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
 
     if allow_autotune:
         if allow_tf32:
-            assert (K % 32 == 0)
             rz_linear_forward_kernel_tf32[grid](
                 input, hashed_weight, output,
                 M, N, K, H,
@@ -54,7 +53,6 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                 GROUP_SIZE=GROUP_SIZE
             )
         else:
-            assert (K % 8 == 0)
             # XXX(Keren): triton bug, cannot materialize allow_tf32
             rz_linear_forward_kernel_fp32[grid](
                 input, hashed_weight, output,
@@ -297,8 +295,7 @@ def rz_linear_forward_core(
     b_offset = b_ptr + offs_k[:, None] * \
         BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[None, :]
     b_ptrs = b_offset + (0 * R3 + pid_n * R2 +
-                         R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N) // 4 * 4
-    b_ptrs = tl.multiple_of(b_ptrs, 16)
+                         R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
     # [BLOCK_SIZE_M, BLOCK_SIZE_N]
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
@@ -315,8 +312,7 @@ def rz_linear_forward_core(
         # Advance the ptrs to the next K block
         a_ptrs += BLOCK_SIZE_K * stride_ak
         b_ptrs = b_offset + ((k + 1) * R3 + pid_n * R2 +
-                             R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N) // 4 * 4
-        b_ptrs = tl.multiple_of(b_ptrs, 16)
+                             R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
     # -----------------------------------------------------------
     # Write back the block of the output matrix C
