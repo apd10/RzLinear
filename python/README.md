@@ -1,10 +1,16 @@
 Model compression - matrix multiply with compressed matrix using state-of-the-art ROBE-Z compression.
 
-Notes:
+### Notes
 
-1. Use M, N, K % 32 == 0
+Use M, N, K % 32 == 0
 
-Sample Usage:
+### Install
+
+```
+pip install .
+```
+
+### Sample Usage
 
 ```
 import torch
