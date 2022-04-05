@@ -43,7 +43,8 @@ class RzLinear(torch.nn.Module):
         self._chunk_size = chunk_size
         self._hashed_weight = hashed_weight
         self._bias = bias
-
+        self._seed = seed
+    
         # random numbers are always on the CPU
         self._random_numbers = self._generate_random_numbers(seed)
 
@@ -57,6 +58,10 @@ class RzLinear(torch.nn.Module):
         # bias term
         if bias:
             self._bias = Parameter(torch.zeros(self._output_dim, dtype=dtype))
+
+    def __repr__(self):
+        return 'RzLinear(mm={}x{} bias={} seed={} hashed_weight_size={}, hashed_weight_id={})'.format(self._input_dim, 
+                  self._output_dim, (self._bias is not None), self._seed, self._hashed_weight.size(), self._hashed_weight.data_ptr())
 
     def _generate_random_numbers(self, seed: int):
         torch.manual_seed(seed)
