@@ -17,7 +17,7 @@ class RzLinear(torch.nn.Module):
     '''
 
     def __init__(self, input_dim: int, output_dim: int, compress_ratio: float = 0.0625, chunk_size: int = 1,
-                 hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = False,
+                 hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = True,
                  dtype: torch.dtype = torch.float32) -> None:
         '''
             A Linear layer using ROBE-Z compression

@@ -39,8 +39,8 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
         Returns:
             hashed_weight_grad (Tensor): A 1xH tensor
     '''
-    assert (K % 4 == 0)
-    assert (N % 4 == 0)
+    #assert (K % 4 == 0)
+    #assert (N % 4 == 0)
     # allocates output
     hashed_weight_grad = torch.zeros(
         (H), device=output_grad.device, dtype=output_grad.dtype)
@@ -51,10 +51,10 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
         triton.cdiv(N, META['BLOCK_SIZE_N']),
     )
 
-    if allow_tf32:
-        assert (M % 32 == 0)
-    else:
-        assert (M % 8 == 0)
+    #if allow_tf32:
+    #    assert (M % 32 == 0)
+    #else:
+    #    assert (M % 8 == 0)
 
     if allow_autotune:
         if allow_tf32:
@@ -313,16 +313,26 @@ def rz_linear_backward_weight_grad_core(
     b_ptrs = b_ptr + offs_bm[:, None] * \
         stride_bm + offs_bn[None, :] * stride_bn
 
+
+    offs_ck = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+    offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+
+    a_zero = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_M), dtype=tl.float32)
+    b_zero = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     # [BLOCK_SIZE_K, BLOCK_SIZE_N]
     c = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
-    for _ in range(0, M//BLOCK_SIZE_M):
+    for m in range(0, tl.cdiv(M, BLOCK_SIZE_M)):
         # Note that for simplicity, we don't apply a mask here.
         # This means that if M is not a multiple of BLOCK_SIZE_M,
         # this will access out-of-bounds memory and produce an
         # error or (worse!) incorrect results.
         # TODO(Keren): Add M checks
-        a = tl.load(a_ptrs)
-        b = tl.load(b_ptrs)
+
+        offs_m = m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+        a_mask = (offs_ck[:, None] < K) & (offs_m[None,:] < M)
+        b_mask = (offs_m[:, None] < M) & (offs_cn[None,:] < N)
+        a = tl.load(a_ptrs, mask=a_mask, other=a_zero)
+        b = tl.load(b_ptrs, mask=b_mask, other=b_zero)
         # We accumulate along the M dimension
         c += tl.dot(a, b, allow_tf32=allow_tf32)
         # Advance the ptrs to the next M block
@@ -358,16 +368,16 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
         Returns:
             input_grad (Tensor): A MxK tensor
     '''
-    assert (M % 4 == 0)
-    assert (K % 4 == 0)
+    #assert (M % 4 == 0)
+    #assert (K % 4 == 0)
     # allocates output
     input_grad = torch.empty(
         (M, K), device=output_grad.device, dtype=output_grad.dtype)
 
-    if allow_tf32:
-        assert (N % 32 == 0)
-    else:
-        assert (N % 8 == 0)
+    #if allow_tf32:
+    #    assert (N % 32 == 0)
+    #else:
+    #    assert (N % 8 == 0)
 
     # 1D launch kernel where each block gets its own program.
     def grid(META): return (
@@ -630,16 +640,25 @@ def rz_linear_backward_input_grad_core(
     b_ptrs = b_offset + (pid_k * R3 + 0 * R2 +
                          R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
+    offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    offs_ck = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+
+    a_zero = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+    b_zero = tl.zeros((BLOCK_SIZE_N, BLOCK_SIZE_K), dtype=tl.float32)
     # [BLOCK_SIZE_M, BLOCK_SIZE_K]
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_K), dtype=tl.float32)
-    for n in range(0, N//BLOCK_SIZE_N):
+    for n in range(0, tl.cdiv(N, BLOCK_SIZE_N)):
         # Note that for simplicity, we don't apply a mask here.
         # This means that if N is not a multiple of BLOCK_SIZE_N,
         # this will access out-of-bounds memory and produce an
         # error or (worse!) incorrect results.
         # TODO(Keren): Add N checks
-        a = tl.load(a_ptrs)
-        b = tl.load(b_ptrs)
+
+        offs_n = n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+        a_mask = (offs_cm[:, None] < M) & (offs_n[None,:] < N)
+        b_mask = (offs_n[:, None] < N) & (offs_ck[None,:] < K)
+        a = tl.load(a_ptrs, mask=a_mask, other=a_zero)
+        b = tl.load(b_ptrs, mask=b_mask, other=b_zero)
         # We accumulate along the N dimension
         c += tl.dot(a, b, allow_tf32=allow_tf32)
         # Advance the ptrs to the next N block

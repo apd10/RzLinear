@@ -5,7 +5,7 @@ from .impl.RzLinearBackward import rz_linear_backward_tl
 
 
 controls = {}
-controls['triton_allow_tf32'] = True
+controls['triton_allow_tf32'] = False
 controls['triton_allow_autotune'] = False
 
 
@@ -14,9 +14,6 @@ class RzLinearFunction(torch.autograd.Function):
     def forward(ctx, input: torch.tensor, hashed_weight: torch.tensor,
                 random_numbers: torch.tensor, output_dim, chunk_size) -> torch.tensor:
         '''
-            Read a chunk_size by performing lsh according to the lsh_mode,
-            join chunks to create an embedding of size embedding_dim for each of the inputs.
-
             Args:
                 input (Tensor): (N, input_dim), where N is the batch size
                 hashed_weight (Tensor): (1xH), the compressed weight tensor

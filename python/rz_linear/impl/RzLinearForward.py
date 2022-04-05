@@ -25,9 +25,10 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
     '''
     # TODO(Keren): make rzlinear more general for any shape
     assert (H > (BLOCK_SIZE_K * BLOCK_SIZE_N))
-    assert (M % 4 == 0)
-    assert (K % 4 == 0)
-    assert (N % 4 == 0)
+    # TODO(Keren) : Why are these required ?
+    #assert (M % 4 == 0)
+    #assert (K % 4 == 0)
+    #assert (N % 4 == 0)
 
     # allocates output
     output = torch.zeros((M, N), device=input.device, dtype=input.dtype)
@@ -37,10 +38,10 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
         triton.cdiv(N, META['BLOCK_SIZE_N']),
     )
 
-    if allow_tf32:
-        assert (K % 32 == 0)
-    else:
-        assert (K % 8 == 0)
+    #if allow_tf32:
+    #    assert (K % 32 == 0)
+    #else:
+    #    assert (K % 8 == 0)
 
     if allow_autotune:
         if allow_tf32:
@@ -299,14 +300,27 @@ def rz_linear_forward_core(
 
     # [BLOCK_SIZE_M, BLOCK_SIZE_N]
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
-    for k in range(0, K//BLOCK_SIZE_K):
+    #a = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_K), dtype=tl.float32)
+    #b = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
+
+    offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+
+    a_zero = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_K), dtype=tl.float32)
+    b_zero = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
+    for k in range(0, tl.cdiv(K, BLOCK_SIZE_K)):
         # Note that for simplicity, we don't apply a mask here.
         # This means that if K is not a multiple of BLOCK_SIZE_K,
         # this will access out-of-bounds memory and produce an
         # error or (worse!) incorrect results.
         # TODO(Keren): Add K checks
-        a = tl.load(a_ptrs)
-        b = tl.load(b_ptrs)
+
+        #offs_k += BLOCK_SIZE_K TODO(aditya) this throws error map::at (do not know why_
+        offs_k = k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+        a_mask = (offs_cm[:, None] < M) & (offs_k[None,:] < K)
+        b_mask = (offs_k[:, None] < K) & (offs_cn[None,:] < N)
+        a = tl.load(a_ptrs, mask=a_mask, other=a_zero)
+        b = tl.load(b_ptrs, mask=b_mask, other=b_zero)
         # We accumulate along the K dimension
         c += tl.dot(a, b, allow_tf32=allow_tf32)
         # Advance the ptrs to the next K block
@@ -316,8 +330,6 @@ def rz_linear_forward_core(
 
     # -----------------------------------------------------------
     # Write back the block of the output matrix C
-    offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-    offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     c_ptrs = c_ptr + stride_cm * \
         offs_cm[:, None] + stride_cn * offs_cn[None, :]
     c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
