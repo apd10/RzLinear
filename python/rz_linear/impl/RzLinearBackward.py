@@ -6,14 +6,15 @@ import triton.language as tl
 
 def rz_linear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, output_grad: torch.tensor,
                           M: int, K: int, N: int, H: int,
+                          R7: int, R6: int, R5: int, R4: int,
                           R3: int, R2: int, R1: int, R0: int,
                           allow_tf32: bool = True, allow_autotune: bool = False,
                           BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
                           GROUP_SIZE: int = 4) -> Tuple[torch.tensor, torch.tensor]:
-    input_grad = rz_linear_backward_input_grad_tl(output_grad, hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
+    input_grad = rz_linear_backward_input_grad_tl(output_grad, hashed_weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                   BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                                   GROUP_SIZE=GROUP_SIZE)
-    weight_grad = rz_linear_backward_weight_grad_tl(input, output_grad, M, K, N, H, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
+    weight_grad = rz_linear_backward_weight_grad_tl(input, output_grad, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                     BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                                     GROUP_SIZE=GROUP_SIZE)
     return input_grad, weight_grad
@@ -21,6 +22,7 @@ def rz_linear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, outp
 
 def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.tensor,
                                       M: int, K: int, N: int, H: int,
+                                      R7: int, R6: int, R5: int, R4: int,
                                       R3: int, R2: int, R1: int, R0: int,
                                       allow_tf32: bool = True, allow_autotune: bool = True,
                                       BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
@@ -39,8 +41,8 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
         Returns:
             hashed_weight_grad (Tensor): A 1xH tensor
     '''
-    assert (K % 4 == 0)
-    assert (N % 4 == 0)
+    #assert (K % 4 == 0)
+    #assert (N % 4 == 0)
     # allocates output
     hashed_weight_grad = torch.zeros(
         (H), device=output_grad.device, dtype=output_grad.dtype)
@@ -51,10 +53,10 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
         triton.cdiv(N, META['BLOCK_SIZE_N']),
     )
 
-    if allow_tf32:
-        assert (M % 32 == 0)
-    else:
-        assert (M % 8 == 0)
+    #if allow_tf32:
+    #    assert (M % 32 == 0)
+    #else:
+    #    assert (M % 8 == 0)
 
     if allow_autotune:
         if allow_tf32:
@@ -63,6 +65,7 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
                 M, N, K, H,
                 input.stride(1), input.stride(0),
                 output_grad.stride(0), output_grad.stride(1),
+                R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
                 GROUP_SIZE=GROUP_SIZE
             )
@@ -72,6 +75,7 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
                 M, N, K, H,
                 input.stride(1), input.stride(0),
                 output_grad.stride(0), output_grad.stride(1),
+                R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
                 GROUP_SIZE=GROUP_SIZE
             )
@@ -81,6 +85,7 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
             M, N, K, H,
             input.stride(1), input.stride(0),
             output_grad.stride(0), output_grad.stride(1),
+            R7=R7, R6=R6, R5=R5, R4=R4,
             R3=R3, R2=R2, R1=R1, R0=R0,
             allow_tf32=allow_tf32,
             GROUP_SIZE=GROUP_SIZE,
@@ -151,13 +156,15 @@ def rz_linear_backward_weight_grad_kernel_fp32(
     stride_am, stride_ak,
     stride_bm, stride_bn,
     # Random numbers
-    R3, R2, R1, R0,
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
     rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
                                         stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
+                                        R7=R7, R6=R6, R5=R5, R4=R4,
                                         R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=False,
                                         BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                         GROUP_SIZE=GROUP_SIZE)
@@ -235,13 +242,15 @@ def rz_linear_backward_weight_grad_kernel_tf32(
     stride_am, stride_ak,
     stride_bm, stride_bn,
     # Random numbers
-    R3, R2, R1, R0,
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
     rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
                                         stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
+                                        R7=R7, R6=R6, R5=R5, R4=R4,
                                         R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=True,
                                         BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                         GROUP_SIZE=GROUP_SIZE)
@@ -258,7 +267,8 @@ def rz_linear_backward_weight_grad_kernel_notune(
     stride_am, stride_ak,
     stride_bm, stride_bn,
     # Random numbers
-    R3, R2, R1, R0,
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
     allow_tf32: tl.constexpr,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
@@ -266,6 +276,7 @@ def rz_linear_backward_weight_grad_kernel_notune(
 ):
     rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
                                         stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
+                                        R7=R7, R6=R6, R5=R5, R4=R4,
                                         R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=allow_tf32,
                                         BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                         GROUP_SIZE=GROUP_SIZE)
@@ -282,7 +293,8 @@ def rz_linear_backward_weight_grad_core(
     stride_am, stride_ak,
     stride_bm, stride_bn,
     # Random numbers
-    R3, R2, R1, R0,
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
     allow_tf32: tl.constexpr,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
@@ -313,16 +325,26 @@ def rz_linear_backward_weight_grad_core(
     b_ptrs = b_ptr + offs_bm[:, None] * \
         stride_bm + offs_bn[None, :] * stride_bn
 
+
+    offs_ck = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+    offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+
+    a_zero = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_M), dtype=tl.float32)
+    b_zero = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     # [BLOCK_SIZE_K, BLOCK_SIZE_N]
     c = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
-    for _ in range(0, M//BLOCK_SIZE_M):
+    for m in range(0, tl.cdiv(M, BLOCK_SIZE_M)):
         # Note that for simplicity, we don't apply a mask here.
         # This means that if M is not a multiple of BLOCK_SIZE_M,
         # this will access out-of-bounds memory and produce an
         # error or (worse!) incorrect results.
         # TODO(Keren): Add M checks
-        a = tl.load(a_ptrs)
-        b = tl.load(b_ptrs)
+
+        offs_m = m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+        a_mask = (offs_ck[:, None] < K) & (offs_m[None,:] < M)
+        b_mask = (offs_m[:, None] < M) & (offs_cn[None,:] < N)
+        a = tl.load(a_ptrs, mask=a_mask, other=a_zero)
+        b = tl.load(b_ptrs, mask=b_mask, other=b_zero)
         # We accumulate along the M dimension
         c += tl.dot(a, b, allow_tf32=allow_tf32)
         # Advance the ptrs to the next M block
@@ -333,13 +355,17 @@ def rz_linear_backward_weight_grad_core(
     # Write back the block of the output matrix C
     c_offset = c_ptr + tl.arange(0, BLOCK_SIZE_K)[:, None] * \
         BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[None, :]
-    c_ptrs = c_offset + (pid_k * R3 + pid_n * R2 +
-                         R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+    #TODO(aditya) temporary int64 fix
+    #c_ptrs = c_offset + (pid_k * R3 + pid_n * R2 +
+    #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+    c_ptrs = c_offset + ((((pid_k) * R3 + pid_n * R2 + R1)%R0) * R0 + (((pid_k) * R7 + pid_n * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+
     tl.atomic_add(c_ptrs, c)
 
 
 def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: torch.tensor,
                                      M: int, K: int, N: int, H: int,
+                                     R7: int, R6: int, R5: int, R4: int,
                                      R3: int, R2: int, R1: int, R0: int,
                                      allow_tf32: bool = True, allow_autotune: bool = True,
                                      BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
@@ -358,16 +384,16 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
         Returns:
             input_grad (Tensor): A MxK tensor
     '''
-    assert (M % 4 == 0)
-    assert (K % 4 == 0)
+    #assert (M % 4 == 0)
+    #assert (K % 4 == 0)
     # allocates output
     input_grad = torch.empty(
         (M, K), device=output_grad.device, dtype=output_grad.dtype)
 
-    if allow_tf32:
-        assert (N % 32 == 0)
-    else:
-        assert (N % 8 == 0)
+    #if allow_tf32:
+    #    assert (N % 32 == 0)
+    #else:
+    #    assert (N % 8 == 0)
 
     # 1D launch kernel where each block gets its own program.
     def grid(META): return (
@@ -382,6 +408,7 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
                 M, N, K, H,
                 output_grad.stride(0), output_grad.stride(1),
                 input_grad.stride(0), input_grad.stride(1),
+                R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
                 GROUP_SIZE=GROUP_SIZE
             )
@@ -391,6 +418,7 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
                 M, N, K, H,
                 output_grad.stride(0), output_grad.stride(1),
                 input_grad.stride(0), input_grad.stride(1),
+                R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
                 GROUP_SIZE=GROUP_SIZE
             )
@@ -400,6 +428,7 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
             M, N, K, H,
             output_grad.stride(0), output_grad.stride(1),
             input_grad.stride(0), input_grad.stride(1),
+            R7=R7, R6=R6, R5=R5, R4=R4,
             R3=R3, R2=R2, R1=R1, R0=R0,
             allow_tf32=allow_tf32,
             num_warps=4,
@@ -461,7 +490,8 @@ def rz_linear_backward_input_grad_kernel_fp32(
     stride_am, stride_an,
     stride_cm, stride_ck,
     # Random numbers
-    R3, R2, R1, R0,
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
@@ -470,6 +500,7 @@ def rz_linear_backward_input_grad_kernel_fp32(
                                        M=M, N=N, K=K, H=H,
                                        stride_am=stride_am, stride_an=stride_an,
                                        stride_cm=stride_cm, stride_ck=stride_ck,
+                                       R7=R7, R6=R6, R5=R5, R4=R4,
                                        R3=R3, R2=R2, R1=R1, R0=R0,
                                        allow_tf32=False,
                                        BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
@@ -548,7 +579,8 @@ def rz_linear_backward_input_grad_kernel_tf32(
     stride_am, stride_an,
     stride_cm, stride_ck,
     # Random numbers
-    R3, R2, R1, R0,
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
@@ -557,6 +589,7 @@ def rz_linear_backward_input_grad_kernel_tf32(
                                        M=M, N=N, K=K, H=H,
                                        stride_am=stride_am, stride_an=stride_an,
                                        stride_cm=stride_cm, stride_ck=stride_ck,
+                                       R7=R7, R6=R6, R5=R5, R4=R4,
                                        R3=R3, R2=R2, R1=R1, R0=R0,
                                        allow_tf32=True,
                                        BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
@@ -574,7 +607,8 @@ def rz_linear_backward_input_grad_kernel_notune(
     stride_am, stride_an,
     stride_cm, stride_ck,
     # Random numbers
-    R3, R2, R1, R0,
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
     allow_tf32: tl.constexpr,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
@@ -584,6 +618,7 @@ def rz_linear_backward_input_grad_kernel_notune(
                                        M=M, N=N, K=K, H=H,
                                        stride_am=stride_am, stride_an=stride_an,
                                        stride_cm=stride_cm, stride_ck=stride_ck,
+                                       R7=R7, R6=R6, R5=R5, R4=R4,
                                        R3=R3, R2=R2, R1=R1, R0=R0,
                                        allow_tf32=allow_tf32,
                                        BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
@@ -601,7 +636,8 @@ def rz_linear_backward_input_grad_core(
     stride_am, stride_an,
     stride_cm, stride_ck,
     # Random numbers
-    R3, R2, R1, R0,
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
     allow_tf32: tl.constexpr,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
@@ -627,25 +663,42 @@ def rz_linear_backward_input_grad_core(
     b_offset = b_ptr + \
         tl.arange(0, BLOCK_SIZE_N)[
             :, None] + tl.arange(0, BLOCK_SIZE_K)[None, :] * BLOCK_SIZE_N
-    b_ptrs = b_offset + (pid_k * R3 + 0 * R2 +
-                         R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
+    #TODO(aditya) temporary int64 fix
+    #b_ptrs = b_offset + (pid_k * R3 + 0 * R2 +
+    #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+    b_ptrs = b_offset + ((((pid_k) * R3 + 0 * R2 + R1)%R0) * R0 + (((pid_k) * R7 + 0 * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+
+
+    offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    offs_ck = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+
+    a_zero = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+    b_zero = tl.zeros((BLOCK_SIZE_N, BLOCK_SIZE_K), dtype=tl.float32)
     # [BLOCK_SIZE_M, BLOCK_SIZE_K]
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_K), dtype=tl.float32)
-    for n in range(0, N//BLOCK_SIZE_N):
+    for n in range(0, tl.cdiv(N, BLOCK_SIZE_N)):
         # Note that for simplicity, we don't apply a mask here.
         # This means that if N is not a multiple of BLOCK_SIZE_N,
         # this will access out-of-bounds memory and produce an
         # error or (worse!) incorrect results.
         # TODO(Keren): Add N checks
-        a = tl.load(a_ptrs)
-        b = tl.load(b_ptrs)
+
+        offs_n = n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+        a_mask = (offs_cm[:, None] < M) & (offs_n[None,:] < N)
+        b_mask = (offs_n[:, None] < N) & (offs_ck[None,:] < K)
+        a = tl.load(a_ptrs, mask=a_mask, other=a_zero)
+        b = tl.load(b_ptrs, mask=b_mask, other=b_zero)
         # We accumulate along the N dimension
         c += tl.dot(a, b, allow_tf32=allow_tf32)
         # Advance the ptrs to the next N block
         a_ptrs += BLOCK_SIZE_N * stride_an
-        b_ptrs = b_offset + (pid_k * R3 + (n + 1) * R2 +
-                             R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+
+        #TODO(aditya) temporary int64 fix
+        #b_ptrs = b_offset + (pid_k * R3 + (n + 1) * R2 +
+        #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+        b_ptrs = b_offset + ((((pid_k) * R3 + (n+1) * R2 + R1)%R0) * R0 + (((pid_k) * R7 + (n+1) * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+
 
     # -----------------------------------------------------------
     # Write back the block of the output matrix C

@@ -7,8 +7,8 @@ from .RzLinearFunction import RzLinearFunction
 class RzLinear(torch.nn.Module):
     # XXX(Keren): triton int64 overflow bug
     #P = 2038074743
-    P = 13703077
-    R = 4
+    P = 45007
+    R = 8
 
     '''
         Args:
@@ -17,7 +17,7 @@ class RzLinear(torch.nn.Module):
     '''
 
     def __init__(self, input_dim: int, output_dim: int, compress_ratio: float = 0.0625, chunk_size: int = 1,
-                 hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = False,
+                 hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = True,
                  dtype: torch.dtype = torch.float32) -> None:
         '''
             A Linear layer using ROBE-Z compression
@@ -34,13 +34,17 @@ class RzLinear(torch.nn.Module):
         '''
         super(RzLinear, self).__init__()
 
+        #TODO(aditya) remove after int64 bugfix
+        assert(input_dim < 10**5 and output_dim < 10**5)
+
         self._input_dim = input_dim
         self._output_dim = output_dim
         self._compress_ratio = compress_ratio
         self._chunk_size = chunk_size
         self._hashed_weight = hashed_weight
         self._bias = bias
-
+        self._seed = seed
+    
         # random numbers are always on the CPU
         self._random_numbers = self._generate_random_numbers(seed)
 
@@ -55,14 +59,16 @@ class RzLinear(torch.nn.Module):
         if bias:
             self._bias = Parameter(torch.zeros(self._output_dim, dtype=dtype))
 
+    def __repr__(self):
+        return 'RzLinear(mm={}x{} bias={} seed={} hashed_weight_size={}, hashed_weight_id={})'.format(self._input_dim, 
+                  self._output_dim, (self._bias is not None), self._seed, self._hashed_weight.size(), self._hashed_weight.data_ptr())
+
     def _generate_random_numbers(self, seed: int):
         torch.manual_seed(seed)
         x = torch.randint(0, RzLinear.P, (RzLinear.R - 1,)).type(
             torch.int32).requires_grad_(False)
-        # XXX(Keren): triton int64 overflow bug
-        x[x > 4096] = torch.div(x[x > 4096], 4096, rounding_mode='trunc')
-        x = x + x % 2
         x = torch.cat([torch.tensor([RzLinear.P], dtype=torch.int32), x])
+        print(x)
         return x.requires_grad_(False).cpu()
 
     def forward(self, x) -> torch.Tensor:
