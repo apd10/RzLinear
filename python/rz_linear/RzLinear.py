@@ -7,8 +7,8 @@ from .RzLinearFunction import RzLinearFunction
 class RzLinear(torch.nn.Module):
     # XXX(Keren): triton int64 overflow bug
     #P = 2038074743
-    P = 13703077
-    R = 4
+    P = 45007
+    R = 8
 
     '''
         Args:
@@ -33,6 +33,9 @@ class RzLinear(torch.nn.Module):
                 dtype (float): The default data type of parameters
         '''
         super(RzLinear, self).__init__()
+
+        #TODO(aditya) remove after int64 bugfix
+        assert(input_dim < 10**5 and output_dim < 10**5)
 
         self._input_dim = input_dim
         self._output_dim = output_dim
@@ -59,10 +62,8 @@ class RzLinear(torch.nn.Module):
         torch.manual_seed(seed)
         x = torch.randint(0, RzLinear.P, (RzLinear.R - 1,)).type(
             torch.int32).requires_grad_(False)
-        # XXX(Keren): triton int64 overflow bug
-        x[x > 4096] = torch.div(x[x > 4096], 4096, rounding_mode='trunc')
-        x = x + x % 2
         x = torch.cat([torch.tensor([RzLinear.P], dtype=torch.int32), x])
+        print(x)
         return x.requires_grad_(False).cpu()
 
     def forward(self, x) -> torch.Tensor:
