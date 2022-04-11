@@ -63,7 +63,7 @@ def test_forward():
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 
     # Disable tf32 in testing
-    rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0, allow_tf32=False,
+    rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0, R3, R2, R1,R1, allow_tf32=False,
                                      allow_autotune=False, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
     weight = rz_linear_idx_tl(rz._hashed_weight, K, N,
                               H, R3, R2, R1, R0, BLOCK_SIZE_K, BLOCK_SIZE_N)
@@ -139,3 +139,5 @@ def test_backward_input():
         BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
 
     assert(torch.allclose(rz_input, torch_input, rtol=1e-3) is True)
+
+test_forward()
