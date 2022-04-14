@@ -53,6 +53,6 @@ class RzLinearFunction(torch.autograd.Function):
         R7, R6, R5, R4 = random_numbers[7].item(), random_numbers[6].item(
         ), random_numbers[5].item(), random_numbers[4].item()
         M, K, N, H = input.shape[0], input.shape[1], output_dim, hashed_weight.shape[0]
-        input_grad, weight_grad = rz_linear_backward_tl(input, hashed_weight, grad, M, K, N, H, R7, R6, R5, R4, R3, R2, R1,
+        input_grad, weight_grad = rz_linear_backward_tl(input.contiguous(), hashed_weight, grad.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1,
                                                         R0, allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'])
         return input_grad, weight_grad, None, None, None

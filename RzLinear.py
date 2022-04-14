@@ -18,7 +18,7 @@ class RzLinearFunction(torch.autograd.Function):
             join chunks to create an embedding of size embedding_dim for each of the
             inputs
         '''
-        output = rz_linear.forward(hashed_weights, input_v, random_numbers,  input_dim, output_dim, chunk_size, tiled)
+        output = rz_linear.forward(hashed_weights, input_v.contiguous(), random_numbers,  input_dim, output_dim, chunk_size, tiled)
         ctx.save_for_backward(hashed_weights, input_v, random_numbers)
         ctx.input_dim =  input_dim
         ctx.output_dim = output_dim
@@ -32,7 +32,7 @@ class RzLinearFunction(torch.autograd.Function):
         input_dim = ctx.input_dim
         output_dim = ctx.output_dim
         chunk_size = ctx.chunk_size
-        in_grad, wt_grad = rz_linear.backward(grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, ctx.tiled)
+        in_grad, wt_grad = rz_linear.backward(grad.contiguous(), hashed_weights, input_v.contiguous(), random_numbers, input_dim, output_dim, chunk_size, ctx.tiled)
         return wt_grad, in_grad, None, None, None, None, None
     @staticmethod
     def forwardproxy(hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled):
@@ -78,7 +78,7 @@ class RzLinear(nn.Module):
         self.bias = Parameter(torch.zeros(self.output_dim, ))
 
         print("RandomNumbers: ", self.random_numbers[:5])
-        print("RzLinear: d1xd2: {}x{} chunk_size: {} weight_size: {}  tiled: {}".format(self.input_dim, self.output_dim, self.chunk_size, self.weight.shape[0], self.tiled))
+        print("RzLinear: d1xd2: {}x{} chunk_size: {} weight_size: {}  tiled: {} seed:{}".format(self.input_dim, self.output_dim, self.chunk_size, self.weight.shape[0], self.tiled, seed))
         
 
     def forward(self, input_v) -> torch.Tensor:

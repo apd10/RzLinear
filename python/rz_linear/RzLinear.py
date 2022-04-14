@@ -16,9 +16,9 @@ class RzLinear(torch.nn.Module):
             R (int): Number of random numbers
     '''
 
-    def __init__(self, input_dim: int, output_dim: int, compress_ratio: float = 0.0625, chunk_size: int = 1,
-                 hashed_weight: torch.tensor = None, seed: int = 1024, bias: bool = True,
-                 dtype: torch.dtype = torch.float32) -> None:
+    def __init__(self, input_dim: int, output_dim: int, chunk_size: int = 1,
+                 hashed_weight: torch.tensor = None, tiled = True, seed: int = 1024, bias: bool = True,
+                 dtype: torch.dtype = torch.float32, compress_ratio: float = 0.0625) -> None:
         '''
             A Linear layer using ROBE-Z compression
 
@@ -82,10 +82,14 @@ class RzLinear(torch.nn.Module):
                 output (Tensor): (N, output_dim)
         '''
         assert(len(x.shape) >= 2)
-        if len(x.shape) > 2:
-            x = x.view(-1, x.shape[-1])
+        dim_gt_2 = x.dim() > 2 
+        if (dim_gt_2):
+            shape = x.shape
+            x = x.reshape(-1, shape[-1]).contiguous()
         x = RzLinearFunction.apply(
             x, self._hashed_weight, self._random_numbers, self._output_dim, self._chunk_size)
         if self._bias is not None:
             x = x + self._bias
+        if (dim_gt_2):
+            x = x.view(*shape[:-1], x.shape[-1])
         return x
