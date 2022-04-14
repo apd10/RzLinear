@@ -140,4 +140,3 @@ def test_backward_input():
 
     assert(torch.allclose(rz_input, torch_input, rtol=1e-3) is True)
 
-test_forward()
