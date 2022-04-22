@@ -10,13 +10,13 @@ def rz_linear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, outp
                           R3: int, R2: int, R1: int, R0: int,
                           allow_tf32: bool = True, allow_autotune: bool = False,
                           BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                          GROUP_SIZE: int = 4) -> Tuple[torch.tensor, torch.tensor]:
+                          GROUP_SIZE: int = 4, is_hnet = False) -> Tuple[torch.tensor, torch.tensor]:
     input_grad = rz_linear_backward_input_grad_tl(output_grad, hashed_weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                   BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                                                  GROUP_SIZE=GROUP_SIZE)
+                                                  GROUP_SIZE=GROUP_SIZE, is_hnet=is_hnet)
     weight_grad = rz_linear_backward_weight_grad_tl(input, output_grad, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                     BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                                                    GROUP_SIZE=GROUP_SIZE)
+                                                    GROUP_SIZE=GROUP_SIZE, is_hnet=is_hnet)
     return input_grad, weight_grad
 
 
@@ -26,7 +26,7 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
                                       R3: int, R2: int, R1: int, R0: int,
                                       allow_tf32: bool = True, allow_autotune: bool = True,
                                       BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                                      GROUP_SIZE: int = 8) -> torch.tensor:
+                                      GROUP_SIZE: int = 8, is_hnet : bool = False) -> torch.tensor:
     '''
         Compute input^T x output_grad and return a weight_grad tensor
 
@@ -80,19 +80,34 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
                 GROUP_SIZE=GROUP_SIZE
             )
     else:
-        rz_linear_backward_weight_grad_kernel_notune[grid](
-            input, output_grad, hashed_weight_grad,
-            M, N, K, H,
-            input.stride(1), input.stride(0),
-            output_grad.stride(0), output_grad.stride(1),
-            R7=R7, R6=R6, R5=R5, R4=R4,
-            R3=R3, R2=R2, R1=R1, R0=R0,
-            allow_tf32=allow_tf32,
-            GROUP_SIZE=GROUP_SIZE,
-            BLOCK_SIZE_K=BLOCK_SIZE_K,
-            BLOCK_SIZE_M=BLOCK_SIZE_M,
-            BLOCK_SIZE_N=BLOCK_SIZE_N
-        )
+        if not is_hnet:
+            rz_linear_backward_weight_grad_kernel_notune[grid](
+                input, output_grad, hashed_weight_grad,
+                M, N, K, H,
+                input.stride(1), input.stride(0),
+                output_grad.stride(0), output_grad.stride(1),
+                R7=R7, R6=R6, R5=R5, R4=R4,
+                R3=R3, R2=R2, R1=R1, R0=R0,
+                allow_tf32=allow_tf32,
+                GROUP_SIZE=GROUP_SIZE,
+                BLOCK_SIZE_K=BLOCK_SIZE_K,
+                BLOCK_SIZE_M=BLOCK_SIZE_M,
+                BLOCK_SIZE_N=BLOCK_SIZE_N
+            )
+        else:
+            hnet_backward_weight_grad_kernel_notune[grid](
+                input, output_grad, hashed_weight_grad,
+                M, N, K, H,
+                input.stride(1), input.stride(0),
+                output_grad.stride(0), output_grad.stride(1),
+                R7=R7, R6=R6, R5=R5, R4=R4,
+                R3=R3, R2=R2, R1=R1, R0=R0,
+                allow_tf32=allow_tf32,
+                GROUP_SIZE=GROUP_SIZE,
+                BLOCK_SIZE_K=BLOCK_SIZE_K,
+                BLOCK_SIZE_M=BLOCK_SIZE_M,
+                BLOCK_SIZE_N=BLOCK_SIZE_N
+            )
 
     return hashed_weight_grad
 
@@ -363,13 +378,118 @@ def rz_linear_backward_weight_grad_core(
     tl.atomic_add(c_ptrs, c)
 
 
+
+@triton.jit
+def hnet_backward_weight_grad_kernel_notune(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_ak,
+    stride_bm, stride_bn,
+    # Random numbers
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
+    allow_tf32: tl.constexpr,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    hnet_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+                                        stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
+                                        R7=R7, R6=R6, R5=R5, R4=R4,
+                                        R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=allow_tf32,
+                                        BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                        GROUP_SIZE=GROUP_SIZE)
+
+
+@triton.jit
+def hnet_backward_weight_grad_core(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_ak,
+    stride_bm, stride_bn,
+    # Random numbers
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
+    allow_tf32: tl.constexpr,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    """Kernel for computing the matmul C = A^T x B.
+    A has shape (M, K), B has shape (M, N) and C has shape (K, N)
+    """
+    pid = tl.program_id(axis=0)
+    num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
+    num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
+    num_pid_in_group = GROUP_SIZE * num_pid_n
+    group_id = pid // num_pid_in_group
+    first_pid_k = group_id * GROUP_SIZE
+    group_size_k = min(num_pid_k - first_pid_k, GROUP_SIZE)
+    pid_k = first_pid_k + (pid % group_size_k)
+    pid_n = (pid % num_pid_in_group) // group_size_k
+
+    # [BLOCK_SIZE_K, BLOCK_SIZE_M]
+    offs_ak = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+    offs_am = tl.arange(0, BLOCK_SIZE_M)
+    a_ptrs = a_ptr + offs_ak[:, None] * \
+        stride_am + offs_am[None, :] * stride_ak
+
+    # [BLOCK_SIZE_M, BLOCK_SIZE_N]
+    offs_bn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    offs_bm = tl.arange(0, BLOCK_SIZE_M)
+    b_ptrs = b_ptr + offs_bm[:, None] * \
+        stride_bm + offs_bn[None, :] * stride_bn
+
+
+    offs_ck = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+    offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+
+    a_zero = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_M), dtype=tl.float32)
+    b_zero = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+    # [BLOCK_SIZE_K, BLOCK_SIZE_N]
+    c = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
+    for m in range(0, tl.cdiv(M, BLOCK_SIZE_M)):
+        # Note that for simplicity, we don't apply a mask here.
+        # This means that if M is not a multiple of BLOCK_SIZE_M,
+        # this will access out-of-bounds memory and produce an
+        # error or (worse!) incorrect results.
+        # TODO(Keren): Add M checks
+
+        offs_m = m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+        a_mask = (offs_ck[:, None] < K) & (offs_m[None,:] < M)
+        b_mask = (offs_m[:, None] < M) & (offs_cn[None,:] < N)
+        a = tl.load(a_ptrs, mask=a_mask, other=a_zero)
+        b = tl.load(b_ptrs, mask=b_mask, other=b_zero)
+        # We accumulate along the M dimension
+        c += tl.dot(a, b, allow_tf32=allow_tf32)
+        # Advance the ptrs to the next M block
+        a_ptrs += BLOCK_SIZE_M * stride_ak
+        b_ptrs += BLOCK_SIZE_M * stride_bm
+
+    # -----------------------------------------------------------
+    # Write back the block of the output matrix C
+    c_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + pid_k * BLOCK_SIZE_K)* R1 + (tl.arange(0, BLOCK_SIZE_N)[None, :] + pid_n * BLOCK_SIZE_N)* R2 + R3) % R0 
+    c_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + pid_k * BLOCK_SIZE_K)* R4 + (tl.arange(0, BLOCK_SIZE_N)[None, :] + pid_n * BLOCK_SIZE_N)* R5 + R6) % R0 
+    c_ptrs = c_ptr + (c_offset1 * R0 + c_offset2) % H
+
+    tl.atomic_add(c_ptrs, c)
+
+
 def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: torch.tensor,
                                      M: int, K: int, N: int, H: int,
                                      R7: int, R6: int, R5: int, R4: int,
                                      R3: int, R2: int, R1: int, R0: int,
                                      allow_tf32: bool = True, allow_autotune: bool = True,
                                      BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                                     GROUP_SIZE: int = 4) -> torch.tensor:
+                                     GROUP_SIZE: int = 4, is_hnet: bool = False) -> torch.tensor:
     '''
         Compute output_grad x hashed_weight^T and return an input_grad tensor
 
@@ -423,21 +543,39 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
                 GROUP_SIZE=GROUP_SIZE
             )
     else:
-        rz_linear_backward_input_grad_kernel_notune[grid](
-            output_grad, hashed_weight, input_grad,
-            M, N, K, H,
-            output_grad.stride(0), output_grad.stride(1),
-            input_grad.stride(0), input_grad.stride(1),
-            R7=R7, R6=R6, R5=R5, R4=R4,
-            R3=R3, R2=R2, R1=R1, R0=R0,
-            allow_tf32=allow_tf32,
-            num_warps=4,
-            num_stages=3,
-            BLOCK_SIZE_M=BLOCK_SIZE_M,
-            BLOCK_SIZE_N=BLOCK_SIZE_N,
-            BLOCK_SIZE_K=BLOCK_SIZE_K,
-            GROUP_SIZE=GROUP_SIZE
-        )
+        if not is_hnet:
+            rz_linear_backward_input_grad_kernel_notune[grid](
+                output_grad, hashed_weight, input_grad,
+                M, N, K, H,
+                output_grad.stride(0), output_grad.stride(1),
+                input_grad.stride(0), input_grad.stride(1),
+                R7=R7, R6=R6, R5=R5, R4=R4,
+                R3=R3, R2=R2, R1=R1, R0=R0,
+                allow_tf32=allow_tf32,
+                num_warps=4,
+                num_stages=3,
+                BLOCK_SIZE_M=BLOCK_SIZE_M,
+                BLOCK_SIZE_N=BLOCK_SIZE_N,
+                BLOCK_SIZE_K=BLOCK_SIZE_K,
+                GROUP_SIZE=GROUP_SIZE
+            )
+        else:
+
+            hnet_backward_input_grad_kernel_notune[grid](
+                output_grad, hashed_weight, input_grad,
+                M, N, K, H,
+                output_grad.stride(0), output_grad.stride(1),
+                input_grad.stride(0), input_grad.stride(1),
+                R7=R7, R6=R6, R5=R5, R4=R4,
+                R3=R3, R2=R2, R1=R1, R0=R0,
+                allow_tf32=allow_tf32,
+                num_warps=4,
+                num_stages=3,
+                BLOCK_SIZE_M=BLOCK_SIZE_M,
+                BLOCK_SIZE_N=BLOCK_SIZE_N,
+                BLOCK_SIZE_K=BLOCK_SIZE_K,
+                GROUP_SIZE=GROUP_SIZE
+            )
     return input_grad
 
 
@@ -698,6 +836,128 @@ def rz_linear_backward_input_grad_core(
         #b_ptrs = b_offset + (pid_k * R3 + (n + 1) * R2 +
         #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
         b_ptrs = b_offset + ((((pid_k) * R3 + (n+1) * R2 + R1)%R0) * R0 + (((pid_k) * R7 + (n+1) * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+
+
+    # -----------------------------------------------------------
+    # Write back the block of the output matrix C
+    # [BLOCK_SIZE_M, BLOCK_SIZE_K]
+    offs_ck = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+    offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    c_ptrs = c_ptr + stride_cm * \
+        offs_cm[:, None] + stride_ck * offs_ck[None, :]
+    c_mask = (offs_cm[:, None] < M) & (offs_ck[None, :] < K)
+    tl.store(c_ptrs, c, mask=c_mask)
+
+
+@triton.jit
+def hnet_backward_input_grad_kernel_notune(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_an,
+    stride_cm, stride_ck,
+    # Random numbers
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
+    allow_tf32: tl.constexpr,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    hnet_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr,
+                                       M=M, N=N, K=K, H=H,
+                                       stride_am=stride_am, stride_an=stride_an,
+                                       stride_cm=stride_cm, stride_ck=stride_ck,
+                                       R7=R7, R6=R6, R5=R5, R4=R4,
+                                       R3=R3, R2=R2, R1=R1, R0=R0,
+                                       allow_tf32=allow_tf32,
+                                       BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                       GROUP_SIZE=GROUP_SIZE)
+
+
+@triton.jit
+def hnet_backward_input_grad_core(
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K, H,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension.
+    stride_am, stride_an,
+    stride_cm, stride_ck,
+    # Random numbers
+    R7: int, R6: int, R5: int, R4: int,
+    R3: int, R2: int, R1: int, R0: int,
+    allow_tf32: tl.constexpr,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+    GROUP_SIZE: tl.constexpr
+):
+    """Kernel for computing the matmul C = (A x B^T)
+    A has shape (M, N), B has shape H->(K, N) and C has shape (M, K)
+    """
+    pid = tl.program_id(axis=0)
+    num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
+    num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
+    pid_m = pid // num_pid_k
+    pid_k = pid % num_pid_k
+
+    # [BLOCK_SIZE_M, BLOCK_SIZE_N]
+    offs_am = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    offs_an = tl.arange(0, BLOCK_SIZE_N)
+    a_ptrs = a_ptr + offs_am[:, None] * \
+        stride_am + offs_an[None, :] * stride_an
+
+    # [BLOCK_SIZE_N, BLOCK_SIZE_K]
+    # Compute hash
+    # b_offset = b_ptr + \
+    #    tl.arange(0, BLOCK_SIZE_N)[
+    #        :, None] + tl.arange(0, BLOCK_SIZE_K)[None, :] * BLOCK_SIZE_N
+
+    #TODO(aditya) temporary int64 fix
+    #b_ptrs = b_offset + (pid_k * R3 + 0 * R2 +
+    #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+    # b_ptrs = b_offset + ((((pid_k) * R3 + 0 * R2 + R1)%R0) * R0 + (((pid_k) * R7 + 0 * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+
+    b_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[None, :] + (pid_k) * BLOCK_SIZE_K)* R1 + (tl.arange(0, BLOCK_SIZE_N)[:, None] + 0 * BLOCK_SIZE_N)* R2 + R3) % R0 
+    b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[None, :] + (pid_k) * BLOCK_SIZE_K)* R4 + (tl.arange(0, BLOCK_SIZE_N)[:, None] + 0 * BLOCK_SIZE_N)* R5 + R6) % R0 
+    b_ptrs = b_ptr + (b_offset1 * R0 + b_offset2) % H
+
+
+    offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    offs_ck = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
+
+    a_zero = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+    b_zero = tl.zeros((BLOCK_SIZE_N, BLOCK_SIZE_K), dtype=tl.float32)
+    # [BLOCK_SIZE_M, BLOCK_SIZE_K]
+    c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_K), dtype=tl.float32)
+    for n in range(0, tl.cdiv(N, BLOCK_SIZE_N)):
+        # Note that for simplicity, we don't apply a mask here.
+        # This means that if N is not a multiple of BLOCK_SIZE_N,
+        # this will access out-of-bounds memory and produce an
+        # error or (worse!) incorrect results.
+        # TODO(Keren): Add N checks
+
+        offs_n = n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+        a_mask = (offs_cm[:, None] < M) & (offs_n[None,:] < N)
+        b_mask = (offs_n[:, None] < N) & (offs_ck[None,:] < K)
+        a = tl.load(a_ptrs, mask=a_mask, other=a_zero)
+        b = tl.load(b_ptrs, mask=b_mask, other=b_zero)
+        # We accumulate along the N dimension
+        c += tl.dot(a, b, allow_tf32=allow_tf32)
+        # Advance the ptrs to the next N block
+        a_ptrs += BLOCK_SIZE_N * stride_an
+
+        #TODO(aditya) temporary int64 fix
+        #b_ptrs = b_offset + (pid_k * R3 + (n + 1) * R2 +
+        #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+        #b_ptrs = b_offset + ((((pid_k) * R3 + (n+1) * R2 + R1)%R0) * R0 + (((pid_k) * R7 + (n+1) * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+        b_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[None, :] + (pid_k) * BLOCK_SIZE_K)* R1 + (tl.arange(0, BLOCK_SIZE_N)[:, None] + (n+1) * BLOCK_SIZE_N)* R2 + R3) % R0 
+        b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[None, :] + (pid_k) * BLOCK_SIZE_K)* R4 + (tl.arange(0, BLOCK_SIZE_N)[:, None] + (n+1) * BLOCK_SIZE_N)* R5 + R6) % R0 
+        b_ptrs = b_ptr + (b_offset1 * R0 + b_offset2) % H
 
 
     # -----------------------------------------------------------

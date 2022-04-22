@@ -12,7 +12,7 @@ controls['triton_allow_autotune'] = False
 class RzLinearFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.tensor, hashed_weight: torch.tensor,
-                random_numbers: torch.tensor, output_dim, chunk_size) -> torch.tensor:
+                random_numbers: torch.tensor, output_dim, chunk_size, is_hnet) -> torch.tensor:
         '''
             Args:
                 input (Tensor): (N, input_dim), where N is the batch size
@@ -35,10 +35,11 @@ class RzLinearFunction(torch.autograd.Function):
         # TODO(Keren): select the best configuration without expensive autotuning
         # BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, GROUP_SIZE = rz_linear_forward_config_tl
         output = rz_linear_forward_tl(input.contiguous(), hashed_weight.data.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
-                                      allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'])
+                                      allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'], is_hnet=is_hnet)
         ctx.save_for_backward(input, hashed_weight, random_numbers)
         ctx.output_dim = output_dim
         ctx.chunk_size = chunk_size
+        ctx.is_hnet = is_hnet
         return output
 
     @staticmethod
@@ -47,6 +48,7 @@ class RzLinearFunction(torch.autograd.Function):
         assert(random_numbers.numel() == 8)
         output_dim = ctx.output_dim
         chunk_size = ctx.chunk_size
+        is_hnet = ctx.is_hnet
         R3, R2, R1, R0 = random_numbers[3].item(), random_numbers[2].item(
         ), random_numbers[1].item(), random_numbers[0].item()
 
@@ -54,5 +56,5 @@ class RzLinearFunction(torch.autograd.Function):
         ), random_numbers[5].item(), random_numbers[4].item()
         M, K, N, H = input.shape[0], input.shape[1], output_dim, hashed_weight.shape[0]
         input_grad, weight_grad = rz_linear_backward_tl(input.contiguous(), hashed_weight, grad.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1,
-                                                        R0, allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'])
-        return input_grad, weight_grad, None, None, None
+                                                        R0, allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'], is_hnet=is_hnet)
+        return input_grad, weight_grad, None, None, None, None
