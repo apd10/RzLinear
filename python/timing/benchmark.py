@@ -109,7 +109,7 @@ def benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[in
 if __name__ == "__main__":
 
     #benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[int]) -> pd.DataFrame:
-    shapes = [[1024,1024], [10240,10240], [81920,81920], [1024,81920], [20480,20480]]
+    shapes = [[1024,1024], [10240,10240], [81920,1024], [1024,81920], [20480,20480]]
     #batch_sizes = [64, 512, 4096, 32768]
     batch_sizes = [64, 512, 1024, 4096, 10240]
     #mem_size = [1, 8, 64, 512] + [32768 * 8 ** i for i in range(5)] + [nb_embeddings*embeding_dim]
