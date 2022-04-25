@@ -90,16 +90,17 @@ def benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[in
                                 "I": [shape[0]],
                                 "O" : [shape[1]],
                                 "mem_params": [mem],
-                                "forward(ms)": [forward_pass * 1000],
-                                "gradcomp(ms)": [gradient_computation * 1000],
-                                "backward(ms)": [backward_pass * 1000],
-                                "total(ms)": [forward_pass * 1000 + gradient_computation * 1000 + backward_pass * 1000],
+                                "forward(ms)": [forward_pass],
+                                "gradcomp(ms)": [gradient_computation],
+                                "backward(ms)": [backward_pass ],
+                                "total(ms)": [forward_pass + gradient_computation + backward_pass],
                                 "msize": [cast_bytes_to_memory_string(4 * count_parameters(model))],
                                 "optim": [optimizer_name],
                             }
                         )
                         print(infos)
                         report = pd.concat([report, infos])
+                        report.to_csv("temp.csv", index=False)
 
     return report
 
@@ -108,10 +109,12 @@ def benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[in
 if __name__ == "__main__":
 
     #benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[int]) -> pd.DataFrame:
-    shapes = [[1024, 1024], [10240,10240]]
+    #shapes = [[1024, 1024], [10240,10240]]
+    shapes = [[10240, 10240]]
     #batch_sizes = [64, 512, 4096, 32768]
     #batch_sizes = [64, 512, 1024, 4096, 10240]
-    batch_sizes = [64, 512, 4096]
+    #batch_sizes = [64, 512, 4096]
+    batch_sizes = [512]
 
     #mem_size = [1, 8, 64, 512] + [32768 * 8 ** i for i in range(5)] + [nb_embeddings*embeding_dim]
     #mem_size = [64, 512] + [32768 * 8 ** i for i in range(5)]
