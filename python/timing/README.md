@@ -1,6 +1,8 @@
 Some preliminary time comparisons ( has the computationally expensive int64 temporary fix)
 
 
+Run benchmark.py for producing the following results ( see main function to change settings)
+
 |    | Model       |    bs |   mem_params |   forward(ms) |   gradcomp(ms) |   backward(ms) |   total(ms) | msize   | optim   |
 |----|-------------|-------|--------------|---------------|----------------|----------------|-------------|---------|---------|
 |  0 | Full        | 10240 |    104857600 |      0.417945 |       0.567543 |       0.208248 |     1.19374 | 400.0MB | sgd     |
