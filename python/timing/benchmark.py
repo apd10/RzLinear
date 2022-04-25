@@ -65,19 +65,16 @@ def benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[in
                             x = torch.from_numpy(np.random.rand(bs, shape[0])).float().cuda(0)
                             y = torch.from_numpy(np.random.uniform(size=(bs, 1))).float().cuda(0)
                             t, y_pred = timing(model)(x)
-                            torch.cuda.synchronize()
                             forward_pass.append(t)
                             loss_value = loss_fct(y, y_pred)
                             # grad
                             t,_ = timing(loss_value.backward)()
 
-                            torch.cuda.synchronize()
                             gradient_computation.append(t)
     
                             # apply
                             t, _ = timing(optimizer.step)()
 
-                            torch.cuda.synchronize()
                             backward_pass.append(t)
                             optimizer.zero_grad()
     
@@ -90,6 +87,8 @@ def benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[in
                             {
                                 "Model": model_name,
                                 "bs": [bs],
+                                "I": [shape[0]],
+                                "O" : [shape[1]],
                                 "mem_params": [mem],
                                 "forward(ms)": [forward_pass * 1000],
                                 "gradcomp(ms)": [gradient_computation * 1000],
@@ -109,12 +108,15 @@ def benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[in
 if __name__ == "__main__":
 
     #benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[int]) -> pd.DataFrame:
-    shapes = [[1024,1024], [10240,10240], [81920,1024], [1024,81920], [20480,20480]]
+    shapes = [[1024, 1024], [10240,10240]]
     #batch_sizes = [64, 512, 4096, 32768]
-    batch_sizes = [64, 512, 1024, 4096, 10240]
+    #batch_sizes = [64, 512, 1024, 4096, 10240]
+    batch_sizes = [64, 512, 4096]
+
     #mem_size = [1, 8, 64, 512] + [32768 * 8 ** i for i in range(5)] + [nb_embeddings*embeding_dim]
     #mem_size = [64, 512] + [32768 * 8 ** i for i in range(5)]
     mem_size=[1024*1024, 1024*1024*8, 1024*1024*16, 1024*1024*32, 1024*1024*64, 1024*1024*128]
+    #mem_size=[1024*1024, 1024*1024*8]
 
     my_report = benchmark(shapes, batch_sizes, mem_size)
     my_report.to_csv("benchmark.csv", index=False)
