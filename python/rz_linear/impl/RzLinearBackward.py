@@ -4,23 +4,23 @@ import triton
 import triton.language as tl
 
 
-def rz_linear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, output_grad: torch.tensor,
+def rz_linear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, output_grad: torch.tensor, init_factor: float,
                           M: int, K: int, N: int, H: int,
                           R7: int, R6: int, R5: int, R4: int,
                           R3: int, R2: int, R1: int, R0: int,
                           allow_tf32: bool = True, allow_autotune: bool = False,
                           BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
                           GROUP_SIZE: int = 4) -> Tuple[torch.tensor, torch.tensor]:
-    input_grad = rz_linear_backward_input_grad_tl(output_grad, hashed_weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
+    input_grad = rz_linear_backward_input_grad_tl(output_grad, hashed_weight, init_factor, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                   BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                                   GROUP_SIZE=GROUP_SIZE)
-    weight_grad = rz_linear_backward_weight_grad_tl(input, output_grad, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
+    weight_grad = rz_linear_backward_weight_grad_tl(input, output_grad, init_factor, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                     BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                                     GROUP_SIZE=GROUP_SIZE)
     return input_grad, weight_grad
 
 
-def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.tensor,
+def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.tensor, init_factor: float,
                                       M: int, K: int, N: int, H: int,
                                       R7: int, R6: int, R5: int, R4: int,
                                       R3: int, R2: int, R1: int, R0: int,
@@ -61,7 +61,7 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
     if allow_autotune:
         if allow_tf32:
             rz_linear_backward_weight_grad_kernel_tf32[grid](
-                input, output_grad, hashed_weight_grad,
+                input, output_grad, hashed_weight_grad, init_factor,
                 M, N, K, H,
                 input.stride(1), input.stride(0),
                 output_grad.stride(0), output_grad.stride(1),
@@ -71,7 +71,7 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
             )
         else:
             rz_linear_backward_weight_grad_kernel_fp32[grid](
-                input, output_grad, hashed_weight_grad,
+                input, output_grad, hashed_weight_grad, init_factor,
                 M, N, K, H,
                 input.stride(1), input.stride(0),
                 output_grad.stride(0), output_grad.stride(1),
@@ -81,7 +81,7 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
             )
     else:
         rz_linear_backward_weight_grad_kernel_notune[grid](
-            input, output_grad, hashed_weight_grad,
+            input, output_grad, hashed_weight_grad, init_factor,
             M, N, K, H,
             input.stride(1), input.stride(0),
             output_grad.stride(0), output_grad.stride(1),
@@ -149,6 +149,8 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
 def rz_linear_backward_weight_grad_kernel_fp32(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -162,7 +164,7 @@ def rz_linear_backward_weight_grad_kernel_fp32(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+    rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
                                         stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
                                         R7=R7, R6=R6, R5=R5, R4=R4,
                                         R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=False,
@@ -235,6 +237,8 @@ def rz_linear_backward_weight_grad_kernel_fp32(
 def rz_linear_backward_weight_grad_kernel_tf32(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -248,7 +252,7 @@ def rz_linear_backward_weight_grad_kernel_tf32(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+    rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
                                         stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
                                         R7=R7, R6=R6, R5=R5, R4=R4,
                                         R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=True,
@@ -260,6 +264,8 @@ def rz_linear_backward_weight_grad_kernel_tf32(
 def rz_linear_backward_weight_grad_kernel_notune(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -274,7 +280,7 @@ def rz_linear_backward_weight_grad_kernel_notune(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+    rz_linear_backward_weight_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
                                         stride_am=stride_am, stride_ak=stride_ak, stride_bm=stride_bm, stride_bn=stride_bn,
                                         R7=R7, R6=R6, R5=R5, R4=R4,
                                         R3=R3, R2=R2, R1=R1, R0=R0, allow_tf32=allow_tf32,
@@ -286,6 +292,8 @@ def rz_linear_backward_weight_grad_kernel_notune(
 def rz_linear_backward_weight_grad_core(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -360,10 +368,10 @@ def rz_linear_backward_weight_grad_core(
     #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
     c_ptrs = c_offset + ((((pid_k) * R3 + pid_n * R2 + R1)%R0) * R0 + (((pid_k) * R7 + pid_n * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
-    tl.atomic_add(c_ptrs, c)
+    tl.atomic_add(c_ptrs, c * init_factor)
 
 
-def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: torch.tensor,
+def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: torch.tensor, init_factor: float,
                                      M: int, K: int, N: int, H: int,
                                      R7: int, R6: int, R5: int, R4: int,
                                      R3: int, R2: int, R1: int, R0: int,
@@ -404,7 +412,7 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
     if allow_autotune:
         if allow_tf32:
             rz_linear_backward_input_grad_kernel_tf32[grid](
-                output_grad, hashed_weight, input_grad,
+                output_grad, hashed_weight, input_grad, init_factor,
                 M, N, K, H,
                 output_grad.stride(0), output_grad.stride(1),
                 input_grad.stride(0), input_grad.stride(1),
@@ -414,7 +422,7 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
             )
         else:
             rz_linear_backward_input_grad_kernel_fp32[grid](
-                output_grad, hashed_weight, input_grad,
+                output_grad, hashed_weight, input_grad, init_factor,
                 M, N, K, H,
                 output_grad.stride(0), output_grad.stride(1),
                 input_grad.stride(0), input_grad.stride(1),
@@ -424,7 +432,7 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
             )
     else:
         rz_linear_backward_input_grad_kernel_notune[grid](
-            output_grad, hashed_weight, input_grad,
+            output_grad, hashed_weight, input_grad, init_factor,
             M, N, K, H,
             output_grad.stride(0), output_grad.stride(1),
             input_grad.stride(0), input_grad.stride(1),
@@ -483,6 +491,8 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
 def rz_linear_backward_input_grad_kernel_fp32(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -496,7 +506,7 @@ def rz_linear_backward_input_grad_kernel_fp32(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    rz_linear_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr,
+    rz_linear_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor,
                                        M=M, N=N, K=K, H=H,
                                        stride_am=stride_am, stride_an=stride_an,
                                        stride_cm=stride_cm, stride_ck=stride_ck,
@@ -572,6 +582,8 @@ def rz_linear_backward_input_grad_kernel_fp32(
 def rz_linear_backward_input_grad_kernel_tf32(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -585,7 +597,7 @@ def rz_linear_backward_input_grad_kernel_tf32(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    rz_linear_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr,
+    rz_linear_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor,
                                        M=M, N=N, K=K, H=H,
                                        stride_am=stride_am, stride_an=stride_an,
                                        stride_cm=stride_cm, stride_ck=stride_ck,
@@ -600,6 +612,8 @@ def rz_linear_backward_input_grad_kernel_tf32(
 def rz_linear_backward_input_grad_kernel_notune(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -614,7 +628,7 @@ def rz_linear_backward_input_grad_kernel_notune(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    rz_linear_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr,
+    rz_linear_backward_input_grad_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor,
                                        M=M, N=N, K=K, H=H,
                                        stride_am=stride_am, stride_an=stride_an,
                                        stride_cm=stride_cm, stride_ck=stride_ck,
@@ -629,6 +643,8 @@ def rz_linear_backward_input_grad_kernel_notune(
 def rz_linear_backward_input_grad_core(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -708,4 +724,4 @@ def rz_linear_backward_input_grad_core(
     c_ptrs = c_ptr + stride_cm * \
         offs_cm[:, None] + stride_ck * offs_ck[None, :]
     c_mask = (offs_cm[:, None] < M) & (offs_ck[None, :] < K)
-    tl.store(c_ptrs, c, mask=c_mask)
+    tl.store(c_ptrs, c * init_factor, mask=c_mask)

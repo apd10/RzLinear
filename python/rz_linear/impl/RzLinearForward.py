@@ -3,7 +3,7 @@ import triton
 import triton.language as tl
 
 
-def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
+def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor, init_factor: float,
                          M: int, K: int, N: int, H: int,
                          R7: int, R6: int, R5: int, R4: int,
                          R3: int, R2: int, R1: int, R0: int,
@@ -47,7 +47,7 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
     if allow_autotune:
         if allow_tf32:
             rz_linear_forward_kernel_tf32[grid](
-                input, hashed_weight, output,
+                input, hashed_weight, output, init_factor,
                 M, N, K, H,
                 input.stride(0), input.stride(1),
                 output.stride(0), output.stride(1),
@@ -58,7 +58,7 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
         else:
             # XXX(Keren): triton bug, cannot materialize allow_tf32
             rz_linear_forward_kernel_fp32[grid](
-                input, hashed_weight, output,
+                input, hashed_weight, output, init_factor,
                 M, N, K, H,
                 input.stride(0), input.stride(1),
                 output.stride(0), output.stride(1),
@@ -68,7 +68,7 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
             )
     else:
         rz_linear_forward_kernel_notune[grid](
-            input, hashed_weight, output,
+            input, hashed_weight, output, init_factor,
             M, N, K, H,
             input.stride(0), input.stride(1),
             output.stride(0), output.stride(1),
@@ -141,6 +141,8 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
 def rz_linear_forward_kernel_fp32(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -154,7 +156,7 @@ def rz_linear_forward_kernel_fp32(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+    rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
                            stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
                            allow_tf32=False, R7=R7, R6=R6, R5=R5, R4=R4, R3=R3, R2=R2, R1=R1, R0=R0,
                            BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
@@ -217,6 +219,8 @@ def rz_linear_forward_kernel_fp32(
 def rz_linear_forward_kernel_tf32(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -230,7 +234,7 @@ def rz_linear_forward_kernel_tf32(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+    rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
                            stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
                            allow_tf32=True, R7=R7, R6=R6, R5=R5, R4=R4,  R3=R3, R2=R2, R1=R1, R0=R0,
                            BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
@@ -241,6 +245,8 @@ def rz_linear_forward_kernel_tf32(
 def rz_linear_forward_kernel_notune(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -255,7 +261,7 @@ def rz_linear_forward_kernel_notune(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
+    rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
                            stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
                            allow_tf32=allow_tf32, R7=R7, R6=R6, R5=R5, R4=R4, R3=R3, R2=R2, R1=R1, R0=R0,
                            BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
@@ -266,6 +272,8 @@ def rz_linear_forward_kernel_notune(
 def rz_linear_forward_core(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
+    # initialization scaling
+    init_factor,
     # Matrix dimensions
     M: int, N : int, K : int, H : int,
     # The stride variables represent how much to increase the ptr by when moving by 1
@@ -346,4 +354,4 @@ def rz_linear_forward_core(
     c_ptrs = c_ptr + stride_cm * \
         offs_cm[:, None] + stride_cn * offs_cn[None, :]
     c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
-    tl.store(c_ptrs, c, mask=c_mask)
+    tl.store(c_ptrs, c * init_factor, mask=c_mask)

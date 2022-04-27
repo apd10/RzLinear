@@ -18,7 +18,8 @@ class RzLinear(torch.nn.Module):
 
     def __init__(self, input_dim: int, output_dim: int, chunk_size: int = 1,
                  hashed_weight: Parameter = None, tiled = True, seed: int = 1024, bias: bool = True,
-                 dtype: torch.dtype = torch.float32, compress_ratio: float = 0.0625) -> None:
+                 dtype: torch.dtype = torch.float32, compress_ratio: float = 0.0625,
+                 init_factor: float = 1.0) -> None:
         '''
             A Linear layer using ROBE-Z compression
 
@@ -44,6 +45,7 @@ class RzLinear(torch.nn.Module):
         self._hashed_weight = hashed_weight
         self._bias = bias
         self._seed = seed
+        self._init_factor = init_factor
     
         # random numbers are always on the CPU
         self._random_numbers = self._generate_random_numbers(seed)
@@ -60,8 +62,8 @@ class RzLinear(torch.nn.Module):
             self._bias = Parameter(torch.zeros(self._output_dim, dtype=dtype))
 
     def __repr__(self):
-        return 'RzLinear(mm={}x{} bias={} seed={} hashed_weight_size={}, hashed_weight_id={})'.format(self._input_dim, 
-                  self._output_dim, (self._bias is not None), self._seed, self._hashed_weight.size(), self._hashed_weight.data_ptr())
+        return 'RzLinear(mm={}x{} bias={} seed={} hashed_weight_size={}, init_factor={} hashed_weight_id={})'.format(self._input_dim, 
+                  self._output_dim, (self._bias is not None), self._seed, self._hashed_weight.size(), self._init_factor, self._hashed_weight.data_ptr())
 
     def _generate_random_numbers(self, seed: int):
         torch.manual_seed(seed)
@@ -87,7 +89,7 @@ class RzLinear(torch.nn.Module):
             shape = x.shape
             x = x.reshape(-1, shape[-1]).contiguous()
         x = RzLinearFunction.apply(
-            x, self._hashed_weight, self._random_numbers, self._output_dim, self._chunk_size)
+            x, self._hashed_weight, self._random_numbers, self._output_dim, self._chunk_size, self._init_factor)
         if self._bias is not None:
             x = x + self._bias
         if (dim_gt_2):
