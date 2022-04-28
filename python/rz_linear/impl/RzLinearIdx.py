@@ -2,6 +2,8 @@ import torch
 import triton
 import triton.language as tl
 
+from .RzLinearHash import rz_linear_hash_tl
+
 
 def rz_linear_idx_tl(hashed_weight: torch.tensor,
                      K: int, N: int, H: int,
@@ -70,8 +72,10 @@ def rz_linear_idx_kernel(
     # Compute hash
     bh_offset = bh_ptr + tl.arange(0, BLOCK_SIZE_K)[:, None] * \
         BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[None, :]
-    bh_ptrs = bh_offset + (((pid_k * R3 + pid_n * R2 + R1) % R0) * R0 +
-                           ((pid_k * R7 + pid_n * R5 + R4) % R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+
+    bh_ptrs = bh_offset + \
+        rz_linear_hash_tl(pid_k, pid_n, R7, R6, R5, R4, R3, R2,
+                          R1, R0, H - BLOCK_SIZE_K * BLOCK_SIZE_N)
     b_ptrs = b_ptr + pid_k * BLOCK_SIZE_K * stride_bk + pid_n * BLOCK_SIZE_N * stride_bn + \
         tl.arange(0, BLOCK_SIZE_K)[:, None] * \
         stride_bk + tl.arange(0, BLOCK_SIZE_N)[None, :]

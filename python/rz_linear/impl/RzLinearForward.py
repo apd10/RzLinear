@@ -44,7 +44,8 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                 output.stride(0), output.stride(1),
                 R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
-                GROUP_SIZE=GROUP_SIZE
+                GROUP_SIZE=GROUP_SIZE,
+                EVEN_K=(K % BLOCK_SIZE_K == 0)
             )
         else:
             rz_linear_forward_kernel_fp32[grid](
@@ -54,7 +55,8 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                 output.stride(0), output.stride(1),
                 R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
-                GROUP_SIZE=GROUP_SIZE
+                GROUP_SIZE=GROUP_SIZE,
+                EVEN_K=(K % BLOCK_SIZE_K == 0)
             )
     else:
         if not is_hnet:
@@ -161,13 +163,13 @@ def rz_linear_forward_kernel_fp32(
     R3: int, R2: int, R1: int, R0: int,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
-    GROUP_SIZE: tl.constexpr
+    GROUP_SIZE: tl.constexpr, EVEN_K: tl.constexpr
 ):
     rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
                            stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
                            allow_tf32=False, R7=R7, R6=R6, R5=R5, R4=R4, R3=R3, R2=R2, R1=R1, R0=R0,
                            BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                           GROUP_SIZE=GROUP_SIZE)
+                           GROUP_SIZE=GROUP_SIZE, EVEN_K=EVEN_K)
 
 
 @triton.autotune(
@@ -233,17 +235,17 @@ def rz_linear_forward_kernel_tf32(
     stride_am, stride_ak,
     stride_cm, stride_cn,
     # Random numbers
-    R7: int, R6: int, R5: int, R4: int,
-    R3: int, R2: int, R1: int, R0: int,
+    R7, R6, R5, R4,
+    R3, R2, R1, R0,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
-    GROUP_SIZE: tl.constexpr
+    GROUP_SIZE: tl.constexpr, EVEN_K: tl.constexpr
 ):
     rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
                            stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
                            allow_tf32=True, R7=R7, R6=R6, R5=R5, R4=R4,  R3=R3, R2=R2, R1=R1, R0=R0,
                            BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                           GROUP_SIZE=GROUP_SIZE)
+                           GROUP_SIZE=GROUP_SIZE, EVEN_K=EVEN_K)
 
 
 @triton.jit
@@ -268,7 +270,7 @@ def hnet_forward_kernel_notune(
                       stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
                       allow_tf32=allow_tf32, R7=R7, R6=R6, R5=R5, R4=R4, R3=R3, R2=R2, R1=R1, R0=R0,
                       BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                      GROUP_SIZE=GROUP_SIZE, EVEN_K=False)
+                      GROUP_SIZE=GROUP_SIZE)
 
 
 @triton.jit
@@ -353,7 +355,7 @@ def rz_linear_forward_core(
             a = tl.load(a_ptrs)
             b = tl.load(b_ptrs)
         else:
-            offs_k += BLOCK_SIZE_K
+            offs_k = tl.arange(0, BLOCK_SIZE_K) + k * BLOCK_SIZE_K
             a = tl.load(a_ptrs, mask=offs_k[None, :] < K, other=0.)
             b = tl.load(b_ptrs, mask=offs_k[:, None] < K, other=0.)
         # We accumulate along the K dimension
@@ -379,15 +381,15 @@ def hnet_forward_core(
     # Pointers to matrices
     a_ptr, b_ptr, c_ptr,
     # Matrix dimensions
-    M: int, N: int, K: int, H: int,
+    M, N, K, H,
     # The stride variables represent how much to increase the ptr by when moving by 1
     # element in a particular dimension.
     stride_am, stride_ak,
     stride_cm, stride_cn,
     allow_tf32: tl.constexpr,
     # Random numbers
-    R7: int, R6: int, R5: int, R4: int,
-    R3: int, R2: int, R1: int, R0: int,
+    R7, R6, R5, R4,
+    R3, R2, R1, R0,
     # Meta-parameters
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
