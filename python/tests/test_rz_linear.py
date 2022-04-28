@@ -3,6 +3,7 @@ from rz_linear import RzLinear
 from rz_linear.impl.RzLinearIdx import rz_linear_idx_tl
 from rz_linear.impl.RzLinearForward import rz_linear_forward_tl
 from rz_linear.impl.RzLinearBackward import rz_linear_backward_weight_grad_tl, rz_linear_backward_input_grad_tl
+from rz_linear.impl.RzLinearHash import rz_linear_hash
 
 device = torch.device('cuda:0')
 
@@ -39,6 +40,8 @@ def test_get_idx():
     BLOCK_SIZE_N = 128
     rz = RzLinear(input_dim=K, output_dim=N).to(device)
     H = int(K * N * rz._compress_ratio)
+    R7, R6, R5, R4 = rz._random_numbers[7].item(), rz._random_numbers[6].item(
+    ), rz._random_numbers[5].item(), rz._random_numbers[4].item()
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 
@@ -59,14 +62,16 @@ def test_forward():
     input = torch.rand((M, K), device=device)
     rz = RzLinear(input_dim=K, output_dim=N).to(device)
     H = int(K * N * rz._compress_ratio)
+    R7, R6, R5, R4 = rz._random_numbers[7].item(), rz._random_numbers[6].item(
+    ), rz._random_numbers[5].item(), rz._random_numbers[4].item()
     R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
     ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
 
     # Disable tf32 in testing
-    rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0, R3, R2, R1,R1, allow_tf32=False,
+    rz_output = rz_linear_forward_tl(input, rz._hashed_weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=False,
                                      allow_autotune=False, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
-    weight = rz_linear_idx_tl(rz._hashed_weight, K, N,
-                              H, R3, R2, R1, R0, BLOCK_SIZE_K, BLOCK_SIZE_N)
+    weight = rz_linear_idx_tl(rz._hashed_weight, K, N, H, R7,
+                              R6, R5, R4, R3, R2, R1, R0, BLOCK_SIZE_K, BLOCK_SIZE_N)
     torch.backends.cuda.matmul.allow_tf32 = False
     torch_output = torch.mm(input, weight)
 
@@ -139,4 +144,3 @@ def test_backward_input():
         BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
 
     assert(torch.allclose(rz_input, torch_input, rtol=1e-3) is True)
-

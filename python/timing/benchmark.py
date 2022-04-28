@@ -13,6 +13,11 @@ import numpy as np
 import pdb
 from tabulate import tabulate
 
+from rz_linear.RzLinearFunction import controls
+
+MAX_ITERS = 22
+WARMUP_ITERS = 5
+
 def count_parameters(model):
     num = np.sum([p.numel() for p in model.parameters()])
     return num
@@ -50,37 +55,40 @@ def benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[in
                         elif optimizer_name == "adagrad":
                             optimizer = torch.optim.Adagrad(model.parameters(), lr=0.001)
                         elif optimizer_name == "adam":
-                                optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+                            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
                         else:
                             raise NotImplementedError
     
                         loss_fct = nn.MSELoss().cuda(0)
     
                         forward_pass = []
-                        gradient_computation = []
                         backward_pass = []
+                        opt_computation = []
                         model.train()
-
-                        for _ in range(22):
+                        
+                        for i in range(22):
                             x = torch.from_numpy(np.random.rand(bs, shape[0])).float().cuda(0)
                             y = torch.from_numpy(np.random.uniform(size=(bs, 1))).float().cuda(0)
+                            
+                            # forward
                             t, y_pred = timing(model)(x)
-                            forward_pass.append(t)
+                            if i >= WARMUP_ITERS:
+                                forward_pass.append(t)
+                            # loss
                             loss_value = loss_fct(y, y_pred)
                             # grad
                             t,_ = timing(loss_value.backward)()
-
-                            gradient_computation.append(t)
-    
-                            # apply
+                            if i >= WARMUP_ITERS:
+                                backward_pass.append(t)
+                            # opt
                             t, _ = timing(optimizer.step)()
-
-                            backward_pass.append(t)
+                            if i >= WARMUP_ITERS:
+                                opt_computation.append(t)
                             optimizer.zero_grad()
     
                         forward_pass = np.median(forward_pass[2:])
-                        gradient_computation = np.median(gradient_computation[2:])
                         backward_pass = np.median(backward_pass[2:])
+                        opt_computation = np.median(opt_computation[2:])
 
     
                         infos = pd.DataFrame(
@@ -91,9 +99,9 @@ def benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[in
                                 "O" : [shape[1]],
                                 "mem_params": [mem],
                                 "forward(ms)": [forward_pass],
-                                "gradcomp(ms)": [gradient_computation],
-                                "backward(ms)": [backward_pass ],
-                                "total(ms)": [forward_pass + gradient_computation + backward_pass],
+                                "backward(ms)": [backward_pass],
+                                "optcomp(ms)": [opt_computation],
+                                "total(ms)": [forward_pass + backward_pass + opt_computation],
                                 "msize": [cast_bytes_to_memory_string(4 * count_parameters(model))],
                                 "optim": [optimizer_name],
                             }
@@ -107,7 +115,7 @@ def benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[in
 
 # pylint: disable=redefined-outer-name
 if __name__ == "__main__":
-
+    controls['triton_allow_autotune'] = True
     #benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[int]) -> pd.DataFrame:
     #shapes = [[1024, 1024], [10240,10240]]
     shapes = [[10240, 10240]]
