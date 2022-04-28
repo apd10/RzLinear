@@ -80,11 +80,13 @@ def benchmark_backward_weight(M, N, K, provider):
     if provider == 'rzlinear':
         rz = RzLinear(input_dim=K, output_dim=N).to('cuda')
         H = int(K * N * rz._compress_ratio)
+        R7, R6, R5, R4 = rz._random_numbers[7].item(), rz._random_numbers[6].item(
+        ), rz._random_numbers[5].item(), rz._random_numbers[4].item()
         R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
         ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
         ms, min_ms, max_ms = triton.testing.do_bench(
             lambda: rz_linear_backward_weight_grad_tl(
-                a, c, M, K, N, H, R3, R2, R1, R0, allow_tf32=controls['triton_allow_tf32']))
+                a, c, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=controls['triton_allow_tf32']))
 
     def perf(ms): return (2 * M * N * K * 1e-12) / (ms * 1e-3)
     return perf(ms), perf(max_ms), perf(min_ms)
@@ -122,11 +124,13 @@ def benchmark_backward_input(M, N, K, provider):
     if provider == 'rzlinear':
         rz = RzLinear(input_dim=K, output_dim=N).to('cuda')
         H = int(K * N * rz._compress_ratio)
+        R7, R6, R5, R4 = rz._random_numbers[7].item(), rz._random_numbers[6].item(
+        ), rz._random_numbers[5].item(), rz._random_numbers[4].item()
         R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
         ), rz._random_numbers[1].item(), rz._random_numbers[0].item()
         ms, min_ms, max_ms = triton.testing.do_bench(
             lambda: rz_linear_backward_input_grad_tl(
-                c, rz._hashed_weight, M, K, N, H, R3, R2, R1, R0,
+                c, rz._hashed_weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
                 allow_tf32=controls['triton_allow_tf32']))
 
     def perf(ms): return (2 * M * N * K * 1e-12) / (ms * 1e-3)
@@ -135,6 +139,7 @@ def benchmark_backward_input(M, N, K, provider):
 
 print('TF32')
 controls['triton_allow_autotune'] = True
+controls['triton_allow_tf32'] = True
 benchmark_forward.run(show_plots=True, print_data=True)
 benchmark_backward_weight.run(show_plots=True, print_data=True)
 benchmark_backward_input.run(show_plots=True, print_data=True)

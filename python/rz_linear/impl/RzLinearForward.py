@@ -35,7 +35,7 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
         triton.cdiv(N, META['BLOCK_SIZE_N']),
     )
 
-    if allow_autotune:
+    if allow_autotune and not is_hnet:
         if allow_tf32:
             rz_linear_forward_kernel_tf32[grid](
                 input, hashed_weight, output,
@@ -59,7 +59,23 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                 EVEN_K=(K % BLOCK_SIZE_K == 0)
             )
     else:
-        if not is_hnet:
+        if is_hnet:
+            hnet_forward_kernel_notune[grid](
+                input, hashed_weight, output,
+                M, N, K, H,
+                input.stride(0), input.stride(1),
+                output.stride(0), output.stride(1),
+                allow_tf32=allow_tf32,
+                R7=R7, R6=R6, R5=R5, R4=R4,
+                R3=R3, R2=R2, R1=R1, R0=R0,
+                num_stages=4,
+                num_warps=4,
+                BLOCK_SIZE_M=BLOCK_SIZE_M,
+                BLOCK_SIZE_N=BLOCK_SIZE_N,
+                BLOCK_SIZE_K=BLOCK_SIZE_K,
+                GROUP_SIZE=GROUP_SIZE
+            )
+        else:
             rz_linear_forward_kernel_notune[grid](
                 input, hashed_weight, output,
                 M, N, K, H,
@@ -75,22 +91,6 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                 BLOCK_SIZE_K=BLOCK_SIZE_K,
                 GROUP_SIZE=GROUP_SIZE,
                 EVEN_K=(K % 32 == 0)
-            )
-        else:
-            hnet_forward_kernel_notune[grid](
-                input, hashed_weight, output,
-                M, N, K, H,
-                input.stride(0), input.stride(1),
-                output.stride(0), output.stride(1),
-                allow_tf32=allow_tf32,
-                R7=R7, R6=R6, R5=R5, R4=R4,
-                R3=R3, R2=R2, R1=R1, R0=R0,
-                num_stages=4,
-                num_warps=4,
-                BLOCK_SIZE_M=BLOCK_SIZE_M,
-                BLOCK_SIZE_N=BLOCK_SIZE_N,
-                BLOCK_SIZE_K=BLOCK_SIZE_K,
-                GROUP_SIZE=GROUP_SIZE
             )
 
     return output

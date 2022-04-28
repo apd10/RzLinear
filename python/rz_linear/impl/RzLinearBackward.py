@@ -51,7 +51,7 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
         triton.cdiv(N, META['BLOCK_SIZE_N']),
     )
 
-    if allow_autotune:
+    if allow_autotune and not is_hnet:
         if allow_tf32:
             rz_linear_backward_weight_grad_kernel_tf32[grid](
                 input, output_grad, hashed_weight_grad,
@@ -75,8 +75,8 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
                 EVEN_M=(M % BLOCK_SIZE_M == 0)
             )
     else:
-        if not is_hnet:
-            rz_linear_backward_weight_grad_kernel_notune[grid](
+        if is_hnet:
+            hnet_backward_weight_grad_kernel_notune[grid](
                 input, output_grad, hashed_weight_grad,
                 M, N, K, H,
                 input.stride(1), input.stride(0),
@@ -87,11 +87,10 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
                 GROUP_SIZE=GROUP_SIZE,
                 BLOCK_SIZE_K=BLOCK_SIZE_K,
                 BLOCK_SIZE_M=BLOCK_SIZE_M,
-                BLOCK_SIZE_N=BLOCK_SIZE_N,
-                EVEN_M=(M % BLOCK_SIZE_M == 0)
+                BLOCK_SIZE_N=BLOCK_SIZE_N
             )
         else:
-            hnet_backward_weight_grad_kernel_notune[grid](
+            rz_linear_backward_weight_grad_kernel_notune[grid](
                 input, output_grad, hashed_weight_grad,
                 M, N, K, H,
                 input.stride(1), input.stride(0),
@@ -507,7 +506,7 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
         triton.cdiv(K, META['BLOCK_SIZE_K']),
     )
 
-    if allow_autotune:
+    if allow_autotune and not is_hnet:
         if allow_tf32:
             rz_linear_backward_input_grad_kernel_tf32[grid](
                 output_grad, hashed_weight, input_grad,
@@ -531,8 +530,8 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
                 EVEN_N=(N % BLOCK_SIZE_N == 0)
             )
     else:
-        if not is_hnet:
-            rz_linear_backward_input_grad_kernel_notune[grid](
+        if is_hnet:
+            hnet_backward_input_grad_kernel_notune[grid](
                 output_grad, hashed_weight, input_grad,
                 M, N, K, H,
                 output_grad.stride(0), output_grad.stride(1),
@@ -545,11 +544,10 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
                 BLOCK_SIZE_M=BLOCK_SIZE_M,
                 BLOCK_SIZE_N=BLOCK_SIZE_N,
                 BLOCK_SIZE_K=BLOCK_SIZE_K,
-                GROUP_SIZE=GROUP_SIZE,
-                EVEN_N=(N % BLOCK_SIZE_N == 0)
+                GROUP_SIZE=GROUP_SIZE
             )
         else:
-            hnet_backward_input_grad_kernel_notune[grid](
+            rz_linear_backward_input_grad_kernel_notune[grid](
                 output_grad, hashed_weight, input_grad,
                 M, N, K, H,
                 output_grad.stride(0), output_grad.stride(1),
