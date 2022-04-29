@@ -10,6 +10,8 @@ controls['triton_allow_autotune'] = False
 
 
 class RzLinearFunction(torch.autograd.Function):
+    _memoize_dict = {}
+
     @staticmethod
     def forward(ctx, input: torch.tensor, hashed_weight: torch.tensor,
                 random_numbers: torch.tensor, output_dim, chunk_size, is_hnet) -> torch.tensor:
@@ -34,8 +36,14 @@ class RzLinearFunction(torch.autograd.Function):
         M, K, N, H = input.shape[0], input.shape[1], output_dim, hashed_weight.shape[0]
         # TODO(Keren): select the best configuration without expensive autotuning
         # BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, GROUP_SIZE = rz_linear_forward_config_tl
-        output = rz_linear_forward_tl(input.contiguous(), hashed_weight.data.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
-                                      allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'], is_hnet=is_hnet)
+        if (M, K, N, H) in RzLinearFunction._memoize_dict:
+            BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, num_warps, num_stages = RzLinearFunction._memoize_dict[(
+                M, K, N, H)]
+            output = rz_linear_forward_tl(input.contiguous(), hashed_weight.data.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
+                                          allow_tf32=controls['triton_allow_tf32'], BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, num_warps=num_warps, num_stages=num_stages, is_hnet=is_hnet)
+        else:
+            output = rz_linear_forward_tl(input.contiguous(), hashed_weight.data.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
+                                          allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'], is_hnet=is_hnet)
         ctx.save_for_backward(input, hashed_weight, random_numbers)
         ctx.output_dim = output_dim
         ctx.chunk_size = chunk_size
@@ -55,6 +63,16 @@ class RzLinearFunction(torch.autograd.Function):
         R7, R6, R5, R4 = random_numbers[7].item(), random_numbers[6].item(
         ), random_numbers[5].item(), random_numbers[4].item()
         M, K, N, H = input.shape[0], input.shape[1], output_dim, hashed_weight.shape[0]
-        input_grad, weight_grad = rz_linear_backward_tl(input.contiguous(), hashed_weight, grad.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1,
-                                                        R0, allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'], is_hnet=is_hnet)
+        if (M, K, N, H) in RzLinearFunction._memoize_dict:
+            BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, num_warps, num_stages = RzLinearFunction._memoize_dict[(
+                M, K, N, H)]
+            input_grad, weight_grad = rz_linear_backward_tl(input.contiguous(), hashed_weight, grad.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1,
+                                                            R0, allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls[
+                                                                'triton_allow_autotune'],
+                                                            BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
+                                                            num_warps=num_warps, num_stages=num_stages,
+                                                            is_hnet=is_hnet)
+        else:
+            input_grad, weight_grad = rz_linear_backward_tl(input.contiguous(), hashed_weight, grad.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1,
+                                                            R0, allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'], is_hnet=is_hnet)
         return input_grad, weight_grad, None, None, None, None
