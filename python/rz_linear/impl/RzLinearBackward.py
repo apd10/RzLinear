@@ -10,13 +10,13 @@ def rz_linear_backward_tl(input: torch.tensor, hashed_weight: torch.tensor, outp
                           R3: int, R2: int, R1: int, R0: int,
                           allow_tf32: bool = True, allow_autotune: bool = False,
                           BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                          GROUP_SIZE: int = 4, is_hnet: bool = False) -> Tuple[torch.tensor, torch.tensor]:
+                          GROUP_SIZE: int = 4, num_warps: int = 4, num_stages: int = 4, is_hnet: bool = False) -> Tuple[torch.tensor, torch.tensor]:
     input_grad = rz_linear_backward_input_grad_tl(output_grad, hashed_weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                   BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                                                  GROUP_SIZE=GROUP_SIZE, is_hnet=is_hnet)
+                                                  GROUP_SIZE=GROUP_SIZE, num_warps=num_warps, num_stages=num_stages, is_hnet=is_hnet)
     weight_grad = rz_linear_backward_weight_grad_tl(input, output_grad, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=allow_autotune,
                                                     BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                                                    GROUP_SIZE=GROUP_SIZE, is_hnet=is_hnet)
+                                                    GROUP_SIZE=GROUP_SIZE, num_warps=num_warps, num_stages=num_stages, is_hnet=is_hnet)
     return input_grad, weight_grad
 
 
@@ -26,7 +26,7 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
                                       R3: int, R2: int, R1: int, R0: int,
                                       allow_tf32: bool = True, allow_autotune: bool = True,
                                       BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                                      GROUP_SIZE: int = 8, is_hnet: bool = False) -> torch.tensor:
+                                      GROUP_SIZE: int = 8, num_warps: int = 4, num_stages: int = 4, is_hnet: bool = False) -> torch.tensor:
     '''
         Compute input^T x output_grad and return a weight_grad tensor
 
@@ -102,6 +102,8 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
                 BLOCK_SIZE_K=BLOCK_SIZE_K,
                 BLOCK_SIZE_M=BLOCK_SIZE_M,
                 BLOCK_SIZE_N=BLOCK_SIZE_N,
+                num_stages=num_stages,
+                num_warps=num_warps,
                 EVEN_M=(M % BLOCK_SIZE_M == 0)
             )
 
@@ -481,7 +483,8 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
                                      R3: int, R2: int, R1: int, R0: int,
                                      allow_tf32: bool = True, allow_autotune: bool = True,
                                      BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                                     GROUP_SIZE: int = 4, is_hnet: bool = False) -> torch.tensor:
+                                     GROUP_SIZE: int = 4, num_warps: int = 4, num_stages: int = 4,
+                                     is_hnet: bool = False) -> torch.tensor:
     '''
         Compute output_grad x hashed_weight^T and return an input_grad tensor
 
@@ -539,8 +542,6 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
                 R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
                 allow_tf32=allow_tf32,
-                num_warps=4,
-                num_stages=3,
                 BLOCK_SIZE_M=BLOCK_SIZE_M,
                 BLOCK_SIZE_N=BLOCK_SIZE_N,
                 BLOCK_SIZE_K=BLOCK_SIZE_K,
@@ -555,8 +556,8 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
                 R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
                 allow_tf32=allow_tf32,
-                num_warps=4,
-                num_stages=3,
+                num_warps=num_warps,
+                num_stages=num_stages,
                 BLOCK_SIZE_M=BLOCK_SIZE_M,
                 BLOCK_SIZE_N=BLOCK_SIZE_N,
                 BLOCK_SIZE_K=BLOCK_SIZE_K,

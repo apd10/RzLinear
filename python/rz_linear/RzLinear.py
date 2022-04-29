@@ -18,7 +18,8 @@ class RzLinear(torch.nn.Module):
 
     def __init__(self, input_dim: int, output_dim: int, chunk_size: int = 1,
                  hashed_weight: Parameter = None, tiled=True, seed: int = 1024, bias: bool = True,
-                 dtype: torch.dtype = torch.float32, compress_ratio: float = 0.0625, is_hnet: bool = False) -> None:
+                 dtype: torch.dtype = torch.float32, compress_ratio: float = 0.0625, is_hnet: bool = False,
+                 device: torch.device = None) -> None:
         '''
             A Linear layer using ROBE-Z compression
 
@@ -31,6 +32,7 @@ class RzLinear(torch.nn.Module):
                 seed (int): The random seed to init random numbers
                 bias (bool): If True, adds a learnable bias to the output
                 dtype (float): The default data type of parameters
+                device (torch.device): On which device the parameters are allocated
         '''
         super(RzLinear, self).__init__()
 
@@ -52,13 +54,14 @@ class RzLinear(torch.nn.Module):
         # weight
         if hashed_weight is None:
             self._hashed_weight = Parameter(
-                torch.arange(int(input_dim * output_dim * compress_ratio)).type(dtype))
+                torch.arange(int(input_dim * output_dim * compress_ratio), device=device).type(dtype))
         else:
             self._hashed_weight = hashed_weight
 
         # bias term
         if bias:
-            self._bias = Parameter(torch.zeros(self._output_dim, dtype=dtype))
+            self._bias = Parameter(torch.zeros(
+                self._output_dim, dtype=dtype, device=device))
 
     def __repr__(self):
         return 'RzLinear(mm={}x{} bias={} seed={} hashed_weight_size={}, hashed_weight_id={}, is_hashnet={})'.format(self._input_dim,
@@ -84,7 +87,7 @@ class RzLinear(torch.nn.Module):
         '''
         assert(len(x.shape) >= 2)
         dim_gt_2 = x.dim() > 2
-        if (dim_gt_2):
+        if dim_gt_2:
             shape = x.shape
             x = x.reshape(-1, shape[-1]).contiguous()
         x = RzLinearFunction.apply(

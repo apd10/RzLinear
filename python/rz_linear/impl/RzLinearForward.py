@@ -9,7 +9,8 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                          R3: int, R2: int, R1: int, R0: int,
                          allow_tf32: bool = True, allow_autotune: bool = True,
                          BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                         GROUP_SIZE: int = 4, is_hnet: bool = False) -> torch.tensor:
+                         GROUP_SIZE: int = 4, num_warps: int = 4, num_stages: int = 4,
+                         is_hnet: bool = False) -> torch.tensor:
     '''
       Compute input_tensor x hashed_weight and return an output tensor
 
@@ -68,8 +69,6 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                 allow_tf32=allow_tf32,
                 R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
-                num_stages=4,
-                num_warps=4,
                 BLOCK_SIZE_M=BLOCK_SIZE_M,
                 BLOCK_SIZE_N=BLOCK_SIZE_N,
                 BLOCK_SIZE_K=BLOCK_SIZE_K,
@@ -84,13 +83,13 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
                 allow_tf32=allow_tf32,
                 R7=R7, R6=R6, R5=R5, R4=R4,
                 R3=R3, R2=R2, R1=R1, R0=R0,
-                num_stages=4,
-                num_warps=4,
+                num_stages=num_stages,
+                num_warps=num_warps,
                 BLOCK_SIZE_M=BLOCK_SIZE_M,
                 BLOCK_SIZE_N=BLOCK_SIZE_N,
                 BLOCK_SIZE_K=BLOCK_SIZE_K,
                 GROUP_SIZE=GROUP_SIZE,
-                EVEN_K=(K % 32 == 0)
+                EVEN_K=(K % BLOCK_SIZE_K == 0)
             )
 
     return output
