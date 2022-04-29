@@ -127,7 +127,8 @@ def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_size: List[in
 
     # pylint: disable=redefined-outer-name
 if __name__ == "__main__":
-    controls['triton_allow_tf32'] = True
+    torch.backends.cuda.matmul.allow_tf32 = False
+    controls['triton_allow_tf32'] = False
     controls['triton_allow_autotune'] = False
     # benchmark(shapes : List[List[int]], batchsizes: List[int], mem_size: List[int]) -> pd.DataFrame:
     # shapes = [[1024, 1024], [10240,10240]]
@@ -143,8 +144,8 @@ if __name__ == "__main__":
                  16, 1024*1024*32, 1024*1024*64, 1024*1024*128]
     # mem_size=[1024*1024, 1024*1024*8]
 
-    autotune(batch_sizes=batch_sizes, shapes=shapes,
-             mem_sizes=mem_sizes, allow_tf32=controls['triton_allow_tf32'])
+    # autotune(batch_sizes=batch_sizes, shapes=shapes,
+    #         mem_sizes=mem_sizes, allow_tf32=controls['triton_allow_tf32'])
     my_report = benchmark(shapes, batch_sizes, mem_sizes)
     my_report.to_csv("benchmark.csv", index=False)
     print(tabulate(my_report, headers='keys', tablefmt='github'))

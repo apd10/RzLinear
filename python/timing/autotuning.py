@@ -13,24 +13,35 @@ ITERS = 5
 
 SHARED = 48 * 1024
 
+# most conservation search
+# vectorized: 4
+# two buffers: 2
+STAGE_SIZE = 8
+
 triton_configs = []
 
 
-# store_tile + compute_tile <= store_tile * 2
+def shared_memory_constraint(m, n, k, num_warps, num_stages):
+    return (m * n + STAGE_SIZE * num_warps * 32) * 4 < SHARED
+
+
 def generate_configs():
     for m in [16, 32, 64, 128, 256]:
         for n in [16, 32, 64, 128, 256]:
             for k in [16, 32, 64, 128, 256]:
-                for num_stage in [2, 3, 4]:
+                for num_stages in [2, 3, 4]:
                     for num_warps in [4, 8]:
-                        if m * k * 2 * 4 < SHARED and k * m * 2 * 4 < SHARED and n * k * 2 * 4 < SHARED:
+                        if shared_memory_constraint(m, n, k, num_warps, num_stages) and \
+                                shared_memory_constraint(k, n, m, num_warps, num_stages) and shared_memory_constraint(m, k, n, num_warps, num_stages):
                             triton_configs.append(triton.Config(
-                                {'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'BLOCK_SIZE_N': n}, num_stages=num_stage, num_warps=num_warps))
-
-# layer-wise autotuning
+                                {'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'BLOCK_SIZE_N': n}, num_stages=num_stages, num_warps=num_warps))
 
 
 def autotune(batch_sizes, shapes, mem_sizes, allow_tf32=False):
+    # layer-wise autotuning
+    # tf32: 10 minutes per shape
+    # fp32: 40 minutes per shape
+    # The autotuning process should be improved, but it is not the goal of this project.
     generate_configs()
     for batch_size in batch_sizes:
         for shape in shapes:
@@ -52,11 +63,12 @@ def autotune(batch_sizes, shapes, mem_sizes, allow_tf32=False):
 
                 def bench():
                     for _ in range(ITERS):
-                        output = rz_linear_forward_tl(x, weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=False,
+                        output = rz_linear_forward_tl(x, weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
+                                                      allow_tf32=allow_tf32, allow_autotune=False,
                                                       BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
                                                       num_stages=num_stages, num_warps=num_warps)
-                        input_grad, weight_grad = rz_linear_backward_tl(x.contiguous(), weight, output.contiguous(),
-                                                                        M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
+                        input_grad, weight_grad = rz_linear_backward_tl(x, weight, output, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
+                                                                        allow_tf32=allow_tf32, allow_autotune=False,
                                                                         BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
                                                                         num_stages=num_stages, num_warps=num_warps)
                 fast_time = 0.0
@@ -74,6 +86,7 @@ def autotune(batch_sizes, shapes, mem_sizes, allow_tf32=False):
                             fast_config = (BLOCK_SIZE_M, BLOCK_SIZE_N,
                                            BLOCK_SIZE_K, num_warps, num_stages)
                     except:
+                        # TODO(Keren): exception dictionary using unsorted BLOCK_SIZEs
                         print('{}: except'.format(config))
                 if fast_time != 0.0:
                     print('{} {}: {}'.format((M, K, N, H), config, fast_time))
