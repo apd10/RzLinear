@@ -17,8 +17,9 @@ from tabulate import tabulate
 from rz_linear.RzLinearFunction import controls
 
 
-DEFAULT_MEM_SIZES = [1024*1024, 1024*1024*8, 1024 *
-                     1024*16, 1024*1024*32, 1024*1024*64, 1024*1024*128]
+#DEFAULT_MEM_SIZES = [1024*1024, 1024*1024*8, 1024 *
+#                     1024*16, 1024*1024*32, 1024*1024*64, 1024*1024*128]
+DEFAULT_MEM_SIZES = [1024*1024]
 MAX_ITERS = 10
 WARMUP_ITERS = 2
 

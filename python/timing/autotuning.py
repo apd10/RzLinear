@@ -33,7 +33,7 @@ def generate_configs():
                         if shared_memory_constraint(m, n, k, num_warps, num_stages) and \
                                 shared_memory_constraint(k, n, m, num_warps, num_stages) and shared_memory_constraint(m, k, n, num_warps, num_stages):
                             triton_configs.append(triton.Config(
-                                {'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'BLOCK_SIZE_N': n}, num_stages=num_stages, num_warps=num_warps))
+                                {'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'BLOCK_SIZE_N': n}, num_warps=num_warps, num_stages=num_stages))
 
 
 def autotune(batch_sizes, shapes, mem_sizes, file_name, allow_tf32=False):
@@ -76,8 +76,8 @@ def autotune(batch_sizes, shapes, mem_sizes, file_name, allow_tf32=False):
                     if config in except_dict:
                         continue
                     BLOCK_SIZE_M = config.kwargs['BLOCK_SIZE_M']
-                    BLOCK_SIZE_N = config.kwargs['BLOCK_SIZE_N']
                     BLOCK_SIZE_K = config.kwargs['BLOCK_SIZE_K']
+                    BLOCK_SIZE_N = config.kwargs['BLOCK_SIZE_N']
                     num_warps = config.num_warps
                     num_stages = config.num_stages
                     try:
@@ -85,13 +85,12 @@ def autotune(batch_sizes, shapes, mem_sizes, file_name, allow_tf32=False):
                         vprint('{}: {}'.format(config, t))
                         if fast_time == 0.0 or t < fast_time:
                             fast_time = t
-                            fast_config = (BLOCK_SIZE_M, BLOCK_SIZE_N,
-                                           BLOCK_SIZE_K, num_warps, num_stages)
+                            fast_config = (BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages)
                     except:
                         except_dict[config] = True
                         vprint('{}: except'.format(config))
                 if fast_time != 0.0:
-                    vprint('{} {}: {}'.format((M, K, N, H), config, fast_time))
+                    vprint('{} {}: {}'.format((M, K, N, H), fast_config, fast_time))
                     RzLinearFunction._memoize_dict[(M, K, N, H)] = fast_config
     if file_name != '':
         with open(file_name, 'wb') as f:

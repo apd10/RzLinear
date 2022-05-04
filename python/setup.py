@@ -26,7 +26,7 @@ setup(
 
     python_requires='>=3.6, <4',
 
-    install_requires=['torch', 'triton', 'pytest'],  # Optional
+    install_requires=['torch', 'triton', 'pytest', 'numpy', 'pandas', 'tabulate'],  # Optional
 
     project_urls={  # Optional
         'Source': 'https://github.com/apd10/RzLinear'

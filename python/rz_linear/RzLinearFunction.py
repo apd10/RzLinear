@@ -34,11 +34,10 @@ class RzLinearFunction(torch.autograd.Function):
         ), random_numbers[5].item(), random_numbers[4].item()
 
         M, K, N, H = input.shape[0], input.shape[1], output_dim, hashed_weight.shape[0]
-        # TODO(Keren): select the best configuration without expensive autotuning
-        # BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, GROUP_SIZE = rz_linear_forward_config_tl
-        if (M, K, N, H) in RzLinearFunction._memoize_dict:
-            BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, num_warps, num_stages = RzLinearFunction._memoize_dict[(
+        if (M, K, N, H) in RzLinearFunction._memoize_dict and is_hnet is False:
+            BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages = RzLinearFunction._memoize_dict[(
                 M, K, N, H)]
+            BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages = 32, 32, 32, 8, 2
             output = rz_linear_forward_tl(input.contiguous(), hashed_weight.data.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
                                           allow_tf32=controls['triton_allow_tf32'], BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, num_warps=num_warps, num_stages=num_stages, is_hnet=is_hnet)
         else:
@@ -63,8 +62,8 @@ class RzLinearFunction(torch.autograd.Function):
         R7, R6, R5, R4 = random_numbers[7].item(), random_numbers[6].item(
         ), random_numbers[5].item(), random_numbers[4].item()
         M, K, N, H = input.shape[0], input.shape[1], output_dim, hashed_weight.shape[0]
-        if (M, K, N, H) in RzLinearFunction._memoize_dict:
-            BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, num_warps, num_stages = RzLinearFunction._memoize_dict[(
+        if (M, K, N, H) in RzLinearFunction._memoize_dict and is_hnet is False:
+            BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages = RzLinearFunction._memoize_dict[(
                 M, K, N, H)]
             input_grad, weight_grad = rz_linear_backward_tl(input.contiguous(), hashed_weight, grad.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1,
                                                             R0, allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls[
