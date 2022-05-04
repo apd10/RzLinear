@@ -37,9 +37,8 @@ class RzLinearFunction(torch.autograd.Function):
         if (M, K, N, H) in RzLinearFunction._memoize_dict and is_hnet is False:
             BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages = RzLinearFunction._memoize_dict[(
                 M, K, N, H)]
-            BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages = 32, 32, 32, 8, 2
             output = rz_linear_forward_tl(input.contiguous(), hashed_weight.data.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
-                                          allow_tf32=controls['triton_allow_tf32'], BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, num_warps=num_warps, num_stages=num_stages, is_hnet=is_hnet)
+                                          allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'], BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, num_warps=num_warps, num_stages=num_stages, is_hnet=is_hnet)
         else:
             output = rz_linear_forward_tl(input.contiguous(), hashed_weight.data.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
                                           allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'], is_hnet=is_hnet)
@@ -66,8 +65,7 @@ class RzLinearFunction(torch.autograd.Function):
             BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages = RzLinearFunction._memoize_dict[(
                 M, K, N, H)]
             input_grad, weight_grad = rz_linear_backward_tl(input.contiguous(), hashed_weight, grad.contiguous(), M, K, N, H, R7, R6, R5, R4, R3, R2, R1,
-                                                            R0, allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls[
-                                                                'triton_allow_autotune'],
+                                                            R0, allow_tf32=controls['triton_allow_tf32'], allow_autotune=controls['triton_allow_autotune'],
                                                             BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                                                             num_warps=num_warps, num_stages=num_stages,
                                                             is_hnet=is_hnet)
