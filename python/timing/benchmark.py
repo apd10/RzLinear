@@ -129,6 +129,7 @@ parser.add_argument('-d', '--dims', type=str, default='10240',
                     help='matrix feature dims, separated by ,')
 parser.add_argument('-b', '--batch-sizes', type=str,
                     default='512', help='batch sizes, separated by')
+parser.add_argument('-i', '--iterations', type=int, required=False)
 parser.add_argument('-c', '--cuda', type=str, default='cuda:0')
 parser.add_argument('-v', '--verbose', action='store_true')
 # TODO(Keren): make mem_sizes configurable
@@ -170,6 +171,10 @@ if args.optimizer == 'all':
     optimizers = ['sgd', 'adagrad', 'adam']
 else:
     optimizers = [args.optimizer]
+
+if args.iterations is not None:
+    MAX_ITERS = args.iterations
+    WARMUP_ITERS = 0
 
 report = benchmark(shapes=shapes, batch_sizes=batch_sizes,
                    mem_sizes=DEFAULT_MEM_SIZES, optimizers=optimizers)
