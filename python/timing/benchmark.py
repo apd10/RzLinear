@@ -124,7 +124,7 @@ parser.add_argument('-s', '--save', type=str,
 parser.add_argument('-l', '--load', type=str,
                     help='Load autotuning configurations', required=False, default='')
 parser.add_argument('-o', '--output', type=str,
-                    help='Output benchmark file', default='bechmark.csv')
+                    help='Output benchmark file', default='benchmark.csv')
 parser.add_argument('-d', '--dims', type=str, default='10240',
                     help='matrix feature dims, separated by ,')
 parser.add_argument('-b', '--batch-sizes', type=str,
