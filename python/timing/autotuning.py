@@ -1,13 +1,12 @@
 import torch
+import triton
+import pickle
 from torch import nn
 from rz_linear import RzLinear
 from rz_linear.impl.RzLinearForward import rz_linear_forward_tl
 from rz_linear.impl.RzLinearBackward import rz_linear_backward_tl
-from decorators import timing
+from utils import timing, vprint, get_device
 from rz_linear.RzLinearFunction import RzLinearFunction
-import triton
-
-device = torch.device('cuda:0')
 
 ITERS = 5
 
@@ -34,24 +33,25 @@ def generate_configs():
                         if shared_memory_constraint(m, n, k, num_warps, num_stages) and \
                                 shared_memory_constraint(k, n, m, num_warps, num_stages) and shared_memory_constraint(m, k, n, num_warps, num_stages):
                             triton_configs.append(triton.Config(
-                                {'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'BLOCK_SIZE_N': n}, num_stages=num_stages, num_warps=num_warps))
+                                {'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'BLOCK_SIZE_N': n}, num_warps=num_warps, num_stages=num_stages))
 
 
-def autotune(batch_sizes, shapes, mem_sizes, allow_tf32=False):
+def autotune(batch_sizes, shapes, mem_sizes, file_name, allow_tf32=False):
     # layer-wise autotuning
     # tf32: 10 minutes per shape
     # fp32: 40 minutes per shape
     # The autotuning process should be improved, but it is not the goal of this project.
     generate_configs()
+    except_dict = dict()
     for batch_size in batch_sizes:
         for shape in shapes:
             input_dim, output_dim = shape[0], shape[1]
-            x = torch.rand((batch_size, input_dim), device=device)
+            x = torch.rand((batch_size, input_dim), device=get_device())
             for mem_size in mem_sizes:
                 weight = torch.arange(
-                    mem_size, device=device).type(torch.float32)
+                    mem_size, device=get_device()).type(torch.float32)
                 rz = RzLinear(input_dim, output_dim,
-                              hashed_weight=weight, seed=1367, device=device)
+                              hashed_weight=weight, seed=1367, device=get_device())
                 R7, R6, R5, R4 = rz._random_numbers[7].item(), rz._random_numbers[6].item(
                 ), rz._random_numbers[5].item(), rz._random_numbers[4].item()
                 R3, R2, R1, R0 = rz._random_numbers[3].item(), rz._random_numbers[2].item(
@@ -67,27 +67,37 @@ def autotune(batch_sizes, shapes, mem_sizes, allow_tf32=False):
                                                       allow_tf32=allow_tf32, allow_autotune=False,
                                                       BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
                                                       num_stages=num_stages, num_warps=num_warps)
-                        input_grad, weight_grad = rz_linear_backward_tl(x, weight, output, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
-                                                                        allow_tf32=allow_tf32, allow_autotune=False,
-                                                                        BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
-                                                                        num_stages=num_stages, num_warps=num_warps)
+                        rz_linear_backward_tl(x, weight, output, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
+                                              allow_tf32=allow_tf32, allow_autotune=False,
+                                              BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
+                                              num_stages=num_stages, num_warps=num_warps)
                 fast_time = 0.0
                 for config in triton_configs:
+                    if config in except_dict:
+                        continue
                     BLOCK_SIZE_M = config.kwargs['BLOCK_SIZE_M']
-                    BLOCK_SIZE_N = config.kwargs['BLOCK_SIZE_N']
                     BLOCK_SIZE_K = config.kwargs['BLOCK_SIZE_K']
+                    BLOCK_SIZE_N = config.kwargs['BLOCK_SIZE_N']
                     num_warps = config.num_warps
                     num_stages = config.num_stages
                     try:
                         t, _ = timing(bench)()
-                        #print('{}: {}'.format(config, t))
+                        vprint('{}: {}'.format(config, t))
                         if fast_time == 0.0 or t < fast_time:
                             fast_time = t
-                            fast_config = (BLOCK_SIZE_M, BLOCK_SIZE_N,
-                                           BLOCK_SIZE_K, num_warps, num_stages)
+                            fast_config = (BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages)
                     except:
-                        # TODO(Keren): exception dictionary using unsorted BLOCK_SIZEs
-                        print('{}: except'.format(config))
+                        except_dict[config] = True
+                        vprint('{}: except'.format(config))
                 if fast_time != 0.0:
-                    print('{} {}: {}'.format((M, K, N, H), config, fast_time))
+                    vprint('{} {}: {}'.format((M, K, N, H), fast_config, fast_time))
                     RzLinearFunction._memoize_dict[(M, K, N, H)] = fast_config
+    if file_name != '':
+        with open(file_name, 'wb') as f:
+            pickle.dump(RzLinearFunction._memoize_dict, f)
+
+
+def load_configs(file_name):
+    if file_name != '':
+        with open(file_name, 'rb') as f:
+            RzLinearFunction._memoize_dict = pickle.load(f)

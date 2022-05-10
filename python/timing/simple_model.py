@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from rz_linear import RzLinear
-import numpy as np
 
 
 class SimpleModel(torch.nn.Module):
