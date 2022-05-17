@@ -23,7 +23,7 @@ MAX_ITERS = 10
 WARMUP_ITERS = 2
 
 
-def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[int], optimizers: List[str], mode:str) -> pd.DataFrame:
+def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[int], optimizers: List[str], mode: str) -> pd.DataFrame:
     """ Benchmark compressed embedding table speed """
     report = pd.DataFrame()
     model_names = ["Full", "HNet", "ROBE-Sketch"]
@@ -56,7 +56,7 @@ def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[i
                         elif optimizer_name == "adam":
                             optimizer = torch.optim.Adam(
                                 model.parameters(), lr=0.001)
-                        elif optimizer_name !=  "none":
+                        elif optimizer_name != "none":
                             raise NotImplementedError
 
                         if mode == "forward":
@@ -146,16 +146,15 @@ parser.add_argument('-l', '--load', type=str,
                     help='Load autotuning configurations', required=False, default='')
 parser.add_argument('-o', '--output', type=str,
                     help='Output benchmark file', default='benchmark.csv')
-parser.add_argument('-d', '--dims', type=str, default='10240',
-                    help='matrix feature dims, 1024x1024,512x512 separated by , ')
+parser.add_argument('-d', '--dims', type=str, default='10240x10240',
+                    help='matrix feature dims, 1024x1024,512x512 separated by ,')
 parser.add_argument('-b', '--batch-sizes', type=str,
                     default='512', help='batch sizes, separated by')
 parser.add_argument('-i', '--iterations', type=int, required=False)
 parser.add_argument('-c', '--cuda', type=str, default='cuda:0')
 parser.add_argument('-v', '--verbose', action='store_true')
 parser.add_argument('-m', '--mode', type=str, default="forward+backward",
-                             help= 'string in [forward, backward, forward+backward],\
-                                what functions to run for autotuning')
+                    help='string in [forward, backward, forward+backward], what functions to run for autotuning')
 # TODO(Keren): make mem_sizes configurable
 args = parser.parse_args()
 
