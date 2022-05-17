@@ -200,7 +200,6 @@ else:
 
 if args.iterations is not None:
     MAX_ITERS = args.iterations
-    WARMUP_ITERS = 0
 
 report = benchmark(shapes=shapes, batch_sizes=batch_sizes,
                    mem_sizes=DEFAULT_MEM_SIZES, optimizers=optimizers, mode=args.mode)
