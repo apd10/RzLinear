@@ -94,6 +94,6 @@ class RzLinear(torch.nn.Module):
             x, self._hashed_weight, self._random_numbers, self._output_dim, self._chunk_size, self._is_hnet)
         if self._bias is not None:
             x = x + self._bias
-        if (dim_gt_2):
+        if dim_gt_2:
             x = x.view(*shape[:-1], x.shape[-1])
         return x
