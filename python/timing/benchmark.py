@@ -172,7 +172,10 @@ def dims_to_shapes(dims):
 set_verbose(args.verbose)
 set_device(args.cuda)
 
-controls['triton_allow_autotune'] = False
+if args.mode == 'forward':
+    controls['triton_allow_autotune'] = True
+else:
+    controls['triton_allow_autotune'] = False
 
 shapes = dims_to_shapes(args.dims)
 batch_sizes = str_to_int_list(args.batch_sizes)
@@ -186,7 +189,7 @@ else:
 
 if args.load != '':
     load_configs(file_name=args.load)
-elif args.autotune:
+elif args.autotune and controls['triton_allow_autotune'] is False:
     autotune(batch_sizes=batch_sizes, shapes=shapes, mem_sizes=DEFAULT_MEM_SIZES,
              file_name=args.save, allow_tf32=controls['triton_allow_tf32'], mode=args.mode)
 
