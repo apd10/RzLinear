@@ -23,12 +23,14 @@ MAX_ITERS = 10
 WARMUP_ITERS = 2
 
 
-def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[int], optimizers: List[str]) -> pd.DataFrame:
+def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[int], optimizers: List[str], mode:str) -> pd.DataFrame:
     """ Benchmark compressed embedding table speed """
     report = pd.DataFrame()
     model_names = ["Full", "HNet", "ROBE-Sketch"]
     hnet = [None, True, False]
     loss_fct = nn.MSELoss().to(device=get_device())
+    if mode == "forward":
+        optimizers = ["none"]
 
     for optimizer_name in optimizers:
         for bs in tq(batch_sizes):
@@ -54,10 +56,13 @@ def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[i
                         elif optimizer_name == "adam":
                             optimizer = torch.optim.Adam(
                                 model.parameters(), lr=0.001)
-                        else:
+                        elif optimizer_name !=  "none":
                             raise NotImplementedError
 
-                        model.train()
+                        if mode == "forward":
+                            model.eval()
+                        else:
+                            model.train()
 
                         def train(iters, x, y, forward_times=None, backward_times=None, opt_times=None):
                             for _ in range(iters):
@@ -77,6 +82,15 @@ def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[i
                                     opt_times.append(t)
                                 optimizer.zero_grad()
 
+                        def eval(iters, x, y, forward_times=None):
+                            for _ in range(iters):
+                                # forward
+                                t, y_pred = timing(model)(x)
+                                if forward_times is not None:
+                                    forward_times.append(t)
+                                # loss
+                                loss_value = loss_fct(y, y_pred)
+
                         x = torch.rand((bs, shape[0]), device=get_device())
                         y = torch.rand((bs, 1), device=get_device())
 
@@ -84,17 +98,24 @@ def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[i
                         backward_pass = []
                         opt_computation = []
 
-                        train(WARMUP_ITERS, x, y)
+                        if mode == "forward":
+                            eval(WARMUP_ITERS, x, y)
+                            eval(MAX_ITERS, x, y, forward_pass)
+                            forward_pass = np.median(forward_pass[:])
+                            backward_pass = 0
+                            opt_computation = 0
+                        else:
+                            train(WARMUP_ITERS, x, y)
+                            train(MAX_ITERS, x, y, forward_pass,
+                                  backward_pass, opt_computation)
 
-                        train(MAX_ITERS, x, y, forward_pass,
-                              backward_pass, opt_computation)
-
-                        forward_pass = np.median(forward_pass[:])
-                        backward_pass = np.median(backward_pass[:])
-                        opt_computation = np.median(opt_computation[:])
+                            forward_pass = np.median(forward_pass[:])
+                            backward_pass = np.median(backward_pass[:])
+                            opt_computation = np.median(opt_computation[:])
 
                         infos = pd.DataFrame(
                             {
+                                "mode": mode,
                                 "Model": model_name,
                                 "bs": [bs],
                                 "I": [shape[0]],
@@ -126,12 +147,15 @@ parser.add_argument('-l', '--load', type=str,
 parser.add_argument('-o', '--output', type=str,
                     help='Output benchmark file', default='benchmark.csv')
 parser.add_argument('-d', '--dims', type=str, default='10240',
-                    help='matrix feature dims, separated by ,')
+                    help='matrix feature dims, 1024x1024,512x512 separated by , ')
 parser.add_argument('-b', '--batch-sizes', type=str,
                     default='512', help='batch sizes, separated by')
 parser.add_argument('-i', '--iterations', type=int, required=False)
 parser.add_argument('-c', '--cuda', type=str, default='cuda:0')
 parser.add_argument('-v', '--verbose', action='store_true')
+parser.add_argument('-m', '--mode', type=str, default="forward+backward",
+                             help= 'string in [forward, backward, forward+backward],\
+                                what functions to run for autotuning')
 # TODO(Keren): make mem_sizes configurable
 args = parser.parse_args()
 
@@ -143,7 +167,7 @@ def str_to_int_list(s, d=','):
 
 
 def dims_to_shapes(dims):
-    return [[dim, dim] for dim in dims]
+    return [[int(dim.split("x")[0]), int(dim.split("x")[1])] for dim in dims.split(',')]
 
 
 set_verbose(args.verbose)
@@ -151,7 +175,7 @@ set_device(args.cuda)
 
 controls['triton_allow_autotune'] = False
 
-shapes = dims_to_shapes(str_to_int_list(args.dims))
+shapes = dims_to_shapes(args.dims)
 batch_sizes = str_to_int_list(args.batch_sizes)
 
 if args.tf32:
@@ -165,7 +189,7 @@ if args.load != '':
     load_configs(file_name=args.load)
 elif args.autotune:
     autotune(batch_sizes=batch_sizes, shapes=shapes, mem_sizes=DEFAULT_MEM_SIZES,
-             file_name=args.save, allow_tf32=controls['triton_allow_tf32'], )
+             file_name=args.save, allow_tf32=controls['triton_allow_tf32'], mode=args.mode)
 
 if args.optimizer == 'all':
     optimizers = ['sgd', 'adagrad', 'adam']
@@ -177,7 +201,7 @@ if args.iterations is not None:
     WARMUP_ITERS = 0
 
 report = benchmark(shapes=shapes, batch_sizes=batch_sizes,
-                   mem_sizes=DEFAULT_MEM_SIZES, optimizers=optimizers)
+                   mem_sizes=DEFAULT_MEM_SIZES, optimizers=optimizers, mode=args.mode)
 report.to_csv(args.output, index=False)
 
 vprint(tabulate(report, headers='keys', tablefmt='github'))
