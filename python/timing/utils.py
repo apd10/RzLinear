@@ -32,6 +32,7 @@ def get_model_bytes(model) -> str:
 def timing(f):
     @wraps(f)
     def wrap(*args, **kw):
+        torch.cuda.synchronize()
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
         start.record()

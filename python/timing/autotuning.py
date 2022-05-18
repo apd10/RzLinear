@@ -61,28 +61,27 @@ def autotune(batch_sizes, shapes, mem_sizes, file_name, allow_tf32=False, mode="
                 # warmup
                 rz_linear_forward_tl(x, weight, M, K, N, H, R7, R6, R5, R4,
                                      R3, R2, R1, R0, allow_tf32=allow_tf32, allow_autotune=False)
+
                 def bench():
                     for _ in range(ITERS):
                         if mode in ["forward+backward"]:
                             output = rz_linear_forward_tl(x, weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
-                                                      allow_tf32=allow_tf32, allow_autotune=False,
-                                                      BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
-                                                      num_stages=num_stages, num_warps=num_warps)
+                                                          allow_tf32=allow_tf32, allow_autotune=False,
+                                                          BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
+                                                          num_stages=num_stages, num_warps=num_warps)
 
                             rz_linear_backward_tl(x, weight, output, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
-                                              allow_tf32=allow_tf32, allow_autotune=False,
-                                              BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
-                                              num_stages=num_stages, num_warps=num_warps)
-                      
+                                                  allow_tf32=allow_tf32, allow_autotune=False,
+                                                  BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
+                                                  num_stages=num_stages, num_warps=num_warps)
+
                         elif mode in ["forward"]:
                             output = rz_linear_forward_tl(x, weight, M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0,
-                                                      allow_tf32=allow_tf32, allow_autotune=False,
-                                                      BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
-                                                      num_stages=num_stages, num_warps=num_warps)
+                                                          allow_tf32=allow_tf32, allow_autotune=False,
+                                                          BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M,
+                                                          num_stages=num_stages, num_warps=num_warps)
                         else:
                             raise NotImplementedError
-
-
 
                 fast_time = 0.0
                 for config in triton_configs:
@@ -98,12 +97,14 @@ def autotune(batch_sizes, shapes, mem_sizes, file_name, allow_tf32=False, mode="
                         vprint('{}: {}'.format(config, t))
                         if fast_time == 0.0 or t < fast_time:
                             fast_time = t
-                            fast_config = (BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages)
+                            fast_config = (
+                                BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages)
                     except:
                         except_dict[config] = True
                         vprint('{}: except'.format(config))
                 if fast_time != 0.0:
-                    vprint('{} {}: {}'.format((M, K, N, H), fast_config, fast_time))
+                    vprint('{} {}: {}'.format(
+                        (M, K, N, H), fast_config, fast_time))
                     RzLinearFunction._memoize_dict[(M, K, N, H)] = fast_config
     if file_name != '':
         with open(file_name, 'wb') as f:
