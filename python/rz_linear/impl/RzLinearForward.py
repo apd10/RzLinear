@@ -3,13 +3,27 @@ import triton
 import triton.language as tl
 
 
-def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor, init_factor: float,
-                         M: int, K: int, N: int, H: int,
-                         R3: int, R2: int, R1: int, R0: int,
-                         allow_tf32: bool = True, allow_autotune: bool = True,
-                         BLOCK_SIZE_M: int = 64, BLOCK_SIZE_N: int = 64, BLOCK_SIZE_K: int = 32,
-                         GROUP_SIZE: int = 4, num_warps: int = 4, num_stages: int = 4,
-                         is_hnet: bool = False) -> torch.tensor:
+def rz_linear_forward_tl(
+        input: torch.tensor,
+        hashed_weight: torch.tensor,
+        init_factor: float,
+        M: int,
+        K: int,
+        N: int,
+        H: int,
+        R3: int,
+        R2: int,
+        R1: int,
+        R0: int,
+        allow_tf32: bool = True,
+        allow_autotune: bool = True,
+        BLOCK_SIZE_M: int = 64,
+        BLOCK_SIZE_N: int = 64,
+        BLOCK_SIZE_K: int = 32,
+        GROUP_SIZE: int = 4,
+        num_warps: int = 4,
+        num_stages: int = 4,
+        is_hnet: bool = False) -> torch.tensor:
     '''
       Compute input_tensor x hashed_weight and return an output tensor
 
@@ -162,11 +176,29 @@ def rz_linear_forward_kernel_fp32(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr, EVEN_K: tl.constexpr
 ):
-    rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
-                           stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
-                           allow_tf32=False, R3=R3, R2=R2, R1=R1, R0=R0,
-                           BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                           GROUP_SIZE=GROUP_SIZE, EVEN_K=EVEN_K)
+    rz_linear_forward_core(
+        a_ptr=a_ptr,
+        b_ptr=b_ptr,
+        c_ptr=c_ptr,
+        init_factor=init_factor,
+        M=M,
+        N=N,
+        K=K,
+        H=H,
+        stride_am=stride_am,
+        stride_ak=stride_ak,
+        stride_cm=stride_cm,
+        stride_cn=stride_cn,
+        allow_tf32=False,
+        R3=R3,
+        R2=R2,
+        R1=R1,
+        R0=R0,
+        BLOCK_SIZE_M=BLOCK_SIZE_M,
+        BLOCK_SIZE_N=BLOCK_SIZE_N,
+        BLOCK_SIZE_K=BLOCK_SIZE_K,
+        GROUP_SIZE=GROUP_SIZE,
+        EVEN_K=EVEN_K)
 
 
 @triton.autotune(
@@ -239,11 +271,29 @@ def rz_linear_forward_kernel_tf32(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr, EVEN_K: tl.constexpr
 ):
-    rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
-                           stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
-                           allow_tf32=True, R3=R3, R2=R2, R1=R1, R0=R0,
-                           BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                           GROUP_SIZE=GROUP_SIZE, EVEN_K=EVEN_K)
+    rz_linear_forward_core(
+        a_ptr=a_ptr,
+        b_ptr=b_ptr,
+        c_ptr=c_ptr,
+        init_factor=init_factor,
+        M=M,
+        N=N,
+        K=K,
+        H=H,
+        stride_am=stride_am,
+        stride_ak=stride_ak,
+        stride_cm=stride_cm,
+        stride_cn=stride_cn,
+        allow_tf32=True,
+        R3=R3,
+        R2=R2,
+        R1=R1,
+        R0=R0,
+        BLOCK_SIZE_M=BLOCK_SIZE_M,
+        BLOCK_SIZE_N=BLOCK_SIZE_N,
+        BLOCK_SIZE_K=BLOCK_SIZE_K,
+        GROUP_SIZE=GROUP_SIZE,
+        EVEN_K=EVEN_K)
 
 
 @triton.jit
@@ -265,11 +315,28 @@ def hnet_forward_kernel_notune(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr
 ):
-    hnet_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
-                      stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
-                      allow_tf32=allow_tf32, R3=R3, R2=R2, R1=R1, R0=R0,
-                      BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                      GROUP_SIZE=GROUP_SIZE)
+    hnet_forward_core(
+        a_ptr=a_ptr,
+        b_ptr=b_ptr,
+        c_ptr=c_ptr,
+        init_factor=init_factor,
+        M=M,
+        N=N,
+        K=K,
+        H=H,
+        stride_am=stride_am,
+        stride_ak=stride_ak,
+        stride_cm=stride_cm,
+        stride_cn=stride_cn,
+        allow_tf32=allow_tf32,
+        R3=R3,
+        R2=R2,
+        R1=R1,
+        R0=R0,
+        BLOCK_SIZE_M=BLOCK_SIZE_M,
+        BLOCK_SIZE_N=BLOCK_SIZE_N,
+        BLOCK_SIZE_K=BLOCK_SIZE_K,
+        GROUP_SIZE=GROUP_SIZE)
 
 
 @triton.jit
@@ -291,11 +358,29 @@ def rz_linear_forward_kernel_notune(
     BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
     GROUP_SIZE: tl.constexpr, EVEN_K: tl.constexpr
 ):
-    rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, init_factor=init_factor, M=M, N=N, K=K, H=H,
-                           stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
-                           allow_tf32=allow_tf32, R3=R3, R2=R2, R1=R1, R0=R0,
-                           BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
-                           GROUP_SIZE=GROUP_SIZE, EVEN_K=EVEN_K)
+    rz_linear_forward_core(
+        a_ptr=a_ptr,
+        b_ptr=b_ptr,
+        c_ptr=c_ptr,
+        init_factor=init_factor,
+        M=M,
+        N=N,
+        K=K,
+        H=H,
+        stride_am=stride_am,
+        stride_ak=stride_ak,
+        stride_cm=stride_cm,
+        stride_cn=stride_cn,
+        allow_tf32=allow_tf32,
+        R3=R3,
+        R2=R2,
+        R1=R1,
+        R0=R0,
+        BLOCK_SIZE_M=BLOCK_SIZE_M,
+        BLOCK_SIZE_N=BLOCK_SIZE_N,
+        BLOCK_SIZE_K=BLOCK_SIZE_K,
+        GROUP_SIZE=GROUP_SIZE,
+        EVEN_K=EVEN_K)
 
 
 @triton.jit
@@ -350,7 +435,7 @@ def rz_linear_forward_core(
         BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[None, :]
     b_ptrs = b_offset + (0 * R3 + pid_n * R2 +
                          R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-    #b_ptrs = b_offset + ((((0) * R3 + pid_n * R2 + R1) % R0) * R0 +
+    # b_ptrs = b_offset + ((((0) * R3 + pid_n * R2 + R1) % R0) * R0 +
     #                     (((0) * R7 + pid_n * R5 + R4) % R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
     # [BLOCK_SIZE_M, BLOCK_SIZE_N]
@@ -371,10 +456,11 @@ def rz_linear_forward_core(
         c += tl.dot(a, b, allow_tf32=allow_tf32)
         # Advance the ptrs to the next K block
         a_ptrs += BLOCK_SIZE_K * stride_ak
-        # TODO(aditya) temp int64 fix
         b_ptrs = b_offset + ((k + 1) * R3 + pid_n * R2 +
                              R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-        #b_ptrs = b_offset + ((((k+1) * R3 + pid_n * R2 + R1) % R0) * R0 + (
+        
+        #  temp int64 fix
+        # b_ptrs = b_offset + ((((k+1) * R3 + pid_n * R2 + R1) % R0) * R0 + (
         #    ((k+1) * R7 + pid_n * R5 + R4) % R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
     # -----------------------------------------------------------
@@ -382,7 +468,7 @@ def rz_linear_forward_core(
     c_ptrs = c_ptr + stride_cm * \
         offs_cm[:, None] + stride_cn * offs_cn[None, :]
     c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
-    tl.store(c_ptrs, c, mask=c_mask)
+    tl.store(c_ptrs, c * init_factor, mask=c_mask)
 
 
 @triton.jit
@@ -436,8 +522,9 @@ def hnet_forward_core(
     # [H]
     b_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + 0) * R1 + (
         tl.arange(0, BLOCK_SIZE_N)[None, :] + pid_n * BLOCK_SIZE_N) * R2 + R3) % R0
-    #b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + 0) * R4 + (
-    #    tl.arange(0, BLOCK_SIZE_N)[None, :] + pid_n * BLOCK_SIZE_N) * R5 + R6) % R0
+    # b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + 0) * R4 + (
+    # tl.arange(0, BLOCK_SIZE_N)[None, :] + pid_n * BLOCK_SIZE_N) * R5 + R6) %
+    # R0
 
     #b_ptrs = b_ptr + (b_offset1 * R0 + b_offset2) % H
     b_ptrs = b_ptr + (b_offset1) % H
@@ -459,7 +546,8 @@ def hnet_forward_core(
         # error or (worse!) incorrect results.
         # TODO(Keren): Add K checks
 
-        # offs_k += BLOCK_SIZE_K TODO(aditya) this throws error map::at (do not know why)
+        # offs_k += BLOCK_SIZE_K TODO(aditya) this throws error map::at (do not
+        # know why)
         offs_k = k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
         a_mask = (offs_cm[:, None] < M) & (offs_k[None, :] < K)
         b_mask = (offs_k[:, None] < K) & (offs_cn[None, :] < N)
@@ -472,9 +560,9 @@ def hnet_forward_core(
         # TODO(aditya) temp int64 fix
         # b_ptrs = b_offset + ((k + 1) * R3 + pid_n * R2 +
         #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-        b_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + (k+1) * BLOCK_SIZE_K) * R1 + (
+        b_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + (k + 1) * BLOCK_SIZE_K) * R1 + (
             tl.arange(0, BLOCK_SIZE_N)[None, :] + pid_n * BLOCK_SIZE_N) * R2 + R3) % R0
-        #b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + (k+1) * BLOCK_SIZE_K) * R4 + (
+        # b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + (k+1) * BLOCK_SIZE_K) * R4 + (
         #    tl.arange(0, BLOCK_SIZE_N)[None, :] + pid_n * BLOCK_SIZE_N) * R5 + R6) % R0
         #b_ptrs = b_ptr + (b_offset1 * R0 + b_offset2) % H
         b_ptrs = b_ptr + (b_offset1) % H

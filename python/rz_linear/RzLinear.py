@@ -5,7 +5,6 @@ from .RzLinearFunction import RzLinearFunction
 
 
 class RzLinear(torch.nn.Module):
-    # XXX(Keren): triton int64 overflow bug
     P = 2038074743
     R = 4
 
@@ -15,16 +14,25 @@ class RzLinear(torch.nn.Module):
             R (int): Number of random numbers
     '''
 
-    def __init__(self, input_dim: int, output_dim: int, chunk_size: int = 1,
-                 hashed_weight: Parameter = None, tiled=True, seed: int = 1024, bias: bool = True,
-                 dtype: torch.dtype = torch.float32, compress_ratio: float = 0.0625, is_hnet: bool = False,
-                 init_factor : float = 1.0,
-                 device: torch.device = None) -> None:
+    def __init__(
+            self,
+            input_dim: int,
+            output_dim: int,
+            chunk_size: int = 1,
+            hashed_weight: Parameter = None,
+            tiled=True,
+            seed: int = 1024,
+            bias: bool = True,
+            dtype: torch.dtype = torch.float32,
+            compress_ratio: float = 0.0625,
+            is_hnet: bool = False,
+            init_factor: float = 1.0,
+            device: torch.device = None) -> None:
         '''
             A Linear layer using ROBE-Z compression
 
             Args:
-                input_dim (int): Number of features in each input sample 
+                input_dim (int): Number of features in each input sample
                 output_dim (int): Number of features in each output sample
                 compress_ratio (float): The compress ratio of the hashed_weight comparing to (input_dim, output_dim)
                 chunk_size (int): The size of the minimal hash unit. It is unused for now
@@ -35,9 +43,6 @@ class RzLinear(torch.nn.Module):
                 device (torch.device): On which device the parameters are allocated
         '''
         super(RzLinear, self).__init__()
-
-        # TODO(aditya) remove after int64 bugfix
-        # assert(input_dim < 10**5 and output_dim < 10**5)
 
         self._input_dim = input_dim
         self._output_dim = output_dim
@@ -53,8 +58,8 @@ class RzLinear(torch.nn.Module):
 
         # weight
         if hashed_weight is None:
-            self._hashed_weight = Parameter(
-                torch.arange(int(input_dim * output_dim * compress_ratio), device=device).type(dtype))
+            self._hashed_weight = Parameter(torch.arange(
+                int(input_dim * output_dim * compress_ratio), device=device).type(dtype))
         else:
             self._hashed_weight = hashed_weight
 
@@ -64,9 +69,15 @@ class RzLinear(torch.nn.Module):
                 self._output_dim, dtype=dtype, device=device))
 
     def __repr__(self):
-        return 'RzLinear(mm={}x{} bias={} seed={} hashed_weight_size={}, hashed_weight_id={}, is_hashnet={} init_factor={})'.format(self._input_dim,
-                self._output_dim, (self._bias is not None), self._seed, self._hashed_weight.size(), self._hashed_weight.data_ptr(), self._is_hnet, 
-                self._init_factor)
+        return 'RzLinear(mm={}x{}, bias={}, seed={}, hashed_weight_size={}, hashed_weight_id={}, is_hashnet={}, init_factor={})'.format(
+            self._input_dim,
+            self._output_dim,
+            (self._bias is not None),
+            self._seed,
+            self._hashed_weight.size(),
+            self._hashed_weight.data_ptr(),
+            self._is_hnet,
+            self._init_factor)
 
     def _generate_random_numbers(self, seed: int):
         torch.manual_seed(seed)
@@ -79,20 +90,24 @@ class RzLinear(torch.nn.Module):
     def forward(self, x) -> torch.Tensor:
         '''
             RzLinear forward function, which computes rzlinear and bias (if any)
-
             Args:
                 input (Tensor): (N, *, input_dim), where N is the batch size
-
             Returns:
                 output (Tensor): (N, output_dim)
         '''
-        assert(len(x.shape) >= 2)
+        assert (len(x.shape) >= 2)
         dim_gt_2 = x.dim() > 2
         if dim_gt_2:
             shape = x.shape
             x = x.reshape(-1, shape[-1]).contiguous()
         x = RzLinearFunction.apply(
-            x, self._hashed_weight, self._random_numbers, self._output_dim, self._chunk_size, self._is_hnet, self._init_factor)
+            x,
+            self._hashed_weight,
+            self._random_numbers,
+            self._output_dim,
+            self._chunk_size,
+            self._is_hnet,
+            self._init_factor)
         if self._bias is not None:
             x = x + self._bias
         if dim_gt_2:
