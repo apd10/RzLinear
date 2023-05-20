@@ -2,13 +2,12 @@ import pickle
 
 import torch
 import triton
-from torch import nn
-from utils import get_device, timing, vprint
-
 from rz_linear import RzLinear
 from rz_linear.impl.RzLinearBackward import rz_linear_backward_tl
 from rz_linear.impl.RzLinearForward import rz_linear_forward_tl
 from rz_linear.RzLinearFunction import RzLinearFunction
+from torch import nn
+from utils import get_device, timing, vprint
 
 ITERS = 5
 

@@ -1,8 +1,7 @@
+import rz_linear
 import torch
 import triton
 import triton.language as tl
-
-import rz_linear
 from rz_linear import RzLinear
 from rz_linear.impl.RzLinearBackward import (rz_linear_backward_input_grad_tl,
                                              rz_linear_backward_weight_grad_tl)

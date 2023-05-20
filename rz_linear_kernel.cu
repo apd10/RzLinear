@@ -56,7 +56,7 @@ inline __device__ int64_t location(int64_t i, int64_t j, int chunk_size, const t
 inline __device__ int64_t location_tiled(int64_t i, int64_t j, const torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> random_numbers, int64_t range) {
     // we have chunked columwise for faster forward pass
     int64_t block_x = i / SMLS;
-    int64_t block_y = j / SMLS; 
+    int64_t block_y = j / SMLS;
     int64_t ix = i & SMLSMASK;
     int64_t iy = j & SMLSMASK;
     int64_t loc = (hash_func(block_x, block_y, random_numbers)) % (range - SMLS * SMLS + 1) + ix * SMLS + iy;
@@ -94,7 +94,7 @@ __global__ void rz_linear_forward_cuda_kernel(
     for(; out_y < output_dim; out_y += blockDim.y) {
       val = 0;
       for(int c = 0; c < num_chunks;c ++) {
-        idx = hash_func(c, out_y, random_numbers) % (hashed_weight_size); // 
+        idx = hash_func(c, out_y, random_numbers) % (hashed_weight_size); //
         for( int ic = 0; ic < chunk_size ; ic ++) {
             kidx = c * chunk_size + ic;
             if (kidx < input_dim) {
@@ -127,7 +127,7 @@ __global__ void rz_linear_backward_cuda_kernel_input(
   int num_chunks = (input_dim + chunk_size - 1)/ chunk_size;
   int64_t idx = 0;
 
-  
+
   #pragma unroll
   for (int in_x = blockIdx.x; in_x < batch; in_x+= gridDim.x) {
 
@@ -141,7 +141,7 @@ __global__ void rz_linear_backward_cuda_kernel_input(
             //if (in_y % 16 ==0 && k % 16 == 0)
             //    printf("[i ]location_tiled: %ld %ld %ld\n", (int64_t) in_y, (int64_t) k, idx);
          }
-         else {      
+         else {
             idx = location(in_y, k, chunk_size, random_numbers, hashed_weight_size);
          }
           input_grad[in_x][in_y] += hashed_weights[idx] * out_grad[in_x][k];
@@ -170,7 +170,7 @@ __global__ void rz_linear_backward_cuda_kernel_weight(
   int num_chunks = (input_dim + chunk_size - 1)/ chunk_size;
   int64_t loc = 0;
   //printf("%d %d (%d, %d)\n", wt_x, wt_y, input_dim, output_dim);
-  
+
   #pragma unroll
   for (int wt_x = blockIdx.x; wt_x < input_dim; wt_x+= gridDim.x) {
 
@@ -208,7 +208,7 @@ torch::Tensor rz_linear_forward_cuda (
     int chunk_size
     )
 {
-    
+
     int64_t hashedWeightSize = hashed_weights.size(0);
     auto output = at::empty({input.size(0), output_dim}, input.options());
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(input.device().index());
@@ -220,7 +220,7 @@ torch::Tensor rz_linear_forward_cuda (
     if (y_max < MAX_BLOCK_SIZE) {
         block = dim3(1, y_max, 1);
     }
-    
+
     dim3 grid = dim3(MAX_GRID_SIZE, 1, 1);
     if ( x_max < MAX_GRID_SIZE) {
         grid = dim3(x_max, 1, 1);
@@ -367,10 +367,10 @@ __global__ void rz_linear_forward_cuda_kernelXXX(
 
   scalar_t val;
 
-  __shared__ scalar_t local_output [SMLS][SMLS]; // TODO +1 is the padding so that two rows do not belong to exaclty same memory banks. 
+  __shared__ scalar_t local_output [SMLS][SMLS]; // TODO +1 is the padding so that two rows do not belong to exaclty same memory banks.
   __shared__ scalar_t local_input [SMLS][SMLS];
   __shared__ scalar_t local_weights [SMLS][SMLS];
-  
+
   for (int oblock = bid; oblock < total_output_blocks; oblock += gridDim.x) {
       block_x = oblock % total_output_blocks_x;
       block_y = oblock / total_output_blocks_x;
@@ -415,7 +415,7 @@ __global__ void rz_linear_forward_cuda_kernelXXX(
           // local matrix multiplication now
           for( int itid = tid; itid < SMLS * SMLS; itid += blockDim.x) {
               r = itid/SMLS;
-              ir = itid % SMLS; 
+              ir = itid % SMLS;
               ix = (ir <= r) ? r - ir : (SMLS - (ir - r));
               iy = ir;
               // ix,iy is the local_output we will compute now
@@ -500,7 +500,7 @@ torch::Tensor rz_linear_forward(
     bool tiled
 )
 {
-  
+
     CHECK_INPUT(hashed_weights);
     CHECK_INPUT(input);
     CHECK_INPUT(random_numbers);
@@ -543,7 +543,7 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward_cuda (
     if ( x_max < MAX_GRID_SIZE) {
         grid = dim3(x_max, 1, 1);
     }
-    
+
     AT_DISPATCH_FLOATING_TYPES(hashed_weights.type(), "rz_linear_backward_cuda_input", ([&] {
         rz_linear_backward_cuda_kernel_input<scalar_t><<<grid, block, 0, stream>>>(
             hashed_weights.packed_accessor32<scalar_t, 1, torch::RestrictPtrTraits>(),
@@ -604,7 +604,7 @@ std::tuple<torch::Tensor, torch::Tensor> rz_linear_backward(
     bool tiled
 )
 {
-  
+
     CHECK_INPUT(hashed_weights);
     CHECK_INPUT(input);
     CHECK_INPUT(out_grad);
@@ -631,7 +631,7 @@ __global__ void rz_linear_idx(torch::PackedTensorAccessor32<int64_t, 1, torch::R
             }
             IDX[bx][ty] =  loc;
         }
-    } 
+    }
 }
 
 torch::Tensor rz_get_idx(torch::Tensor& random_numbers, int input_dim, int output_dim, int chunk_size, int weight_size,  bool tiled) {

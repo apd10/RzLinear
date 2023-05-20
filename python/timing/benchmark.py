@@ -8,12 +8,11 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from autotuning import autotune, load_configs
+from rz_linear.RzLinearFunction import controls
 from simple_model import SimpleModel
 from tabulate import tabulate
 from tqdm import tqdm as tq
 from utils import *
-
-from rz_linear.RzLinearFunction import controls
 
 DEFAULT_MEM_SIZES = [1024 * 1024, 1024 * 1024 * 8, 1024 *
                      1024 * 16, 1024 * 1024 * 32, 1024 * 1024 * 64, 1024 * 1024 * 128]
