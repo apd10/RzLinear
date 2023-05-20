@@ -1,6 +1,6 @@
 from functools import wraps
-import torch
 
+import torch
 
 knobs = {}
 

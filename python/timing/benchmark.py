@@ -1,29 +1,28 @@
 """ Benchmark on compressed embedding table speed """
 
+import argparse
+from typing import List
+
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
-import pandas as pd
-import numpy as np
-import argparse
-
-from typing import List
-from simple_model import SimpleModel
 from autotuning import autotune, load_configs
-from utils import *
-
-from tqdm import tqdm as tq
+from simple_model import SimpleModel
 from tabulate import tabulate
+from tqdm import tqdm as tq
+from utils import *
 
 from rz_linear.RzLinearFunction import controls
 
-
-DEFAULT_MEM_SIZES = [1024*1024, 1024*1024*8, 1024 *
-                     1024*16, 1024*1024*32, 1024*1024*64, 1024*1024*128]
+DEFAULT_MEM_SIZES = [1024 * 1024, 1024 * 1024 * 8, 1024 *
+                     1024 * 16, 1024 * 1024 * 32, 1024 * 1024 * 64, 1024 * 1024 * 128]
 MAX_ITERS = 10
 WARMUP_ITERS = 2
 
 
-def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[int], optimizers: List[str], mode: str) -> pd.DataFrame:
+def benchmark(shapes: List[List[int]], batch_sizes: List[int],
+              mem_sizes: List[int], optimizers: List[str], mode: str) -> pd.DataFrame:
     """ Benchmark compressed embedding table speed """
     report = pd.DataFrame()
     model_names = ["Full", "HNet", "ROBE-Sketch"]
@@ -64,7 +63,8 @@ def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[i
                         else:
                             model.train()
 
-                        def train(iters, x, y, forward_times=None, backward_times=None, opt_times=None):
+                        def train(iters, x, y, forward_times=None,
+                                  backward_times=None, opt_times=None):
                             for _ in range(iters):
                                 # forward
                                 t, y_pred = timing(model)(x)
@@ -166,7 +166,8 @@ def str_to_int_list(s, d=','):
 
 
 def dims_to_shapes(dims):
-    return [[int(dim.split("x")[0]), int(dim.split("x")[1])] for dim in dims.split(',')]
+    return [[int(dim.split("x")[0]), int(dim.split("x")[1])]
+            for dim in dims.split(',')]
 
 
 set_verbose(args.verbose)

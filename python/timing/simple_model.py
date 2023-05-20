@@ -1,10 +1,12 @@
 import torch
 import torch.nn as nn
+
 from rz_linear import RzLinear
 
 
 class SimpleModel(torch.nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, mem: int, robez: bool, hnet: bool):
+    def __init__(self, input_dim: int, output_dim: int,
+                 mem: int, robez: bool, hnet: bool):
         super(SimpleModel, self).__init__()
         if robez:
             self.weight = nn.Parameter(torch.arange(mem).type(torch.float32))

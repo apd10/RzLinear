@@ -1,4 +1,5 @@
 from typing import Tuple
+
 import torch
 import triton
 import triton.language as tl
@@ -817,8 +818,8 @@ def rz_linear_backward_input_grad_core(
         # TODO(aditya) temporary int64 fix
         # b_ptrs = b_offset + (pid_k * R3 + (n + 1) * R2 +
         #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-        b_ptrs = b_offset + ((((pid_k) * R3 + (n+1) * R2 + R1) % R0) * R0 + (
-            ((pid_k) * R7 + (n+1) * R5 + R4) % R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+        b_ptrs = b_offset + ((((pid_k) * R3 + (n + 1) * R2 + R1) % R0) * R0 + (
+            ((pid_k) * R7 + (n + 1) * R5 + R4) % R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
     # -----------------------------------------------------------
     # Write back the block of the output matrix C
@@ -937,11 +938,11 @@ def hnet_backward_input_grad_core(
         # TODO(aditya) temporary int64 fix
         # b_ptrs = b_offset + (pid_k * R3 + (n + 1) * R2 +
         #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-        #b_ptrs = b_offset + ((((pid_k) * R3 + (n+1) * R2 + R1)%R0) * R0 + (((pid_k) * R7 + (n+1) * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+        # b_ptrs = b_offset + ((((pid_k) * R3 + (n+1) * R2 + R1)%R0) * R0 + (((pid_k) * R7 + (n+1) * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
         b_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[None, :] + (pid_k) * BLOCK_SIZE_K) * R1 + (
-            tl.arange(0, BLOCK_SIZE_N)[:, None] + (n+1) * BLOCK_SIZE_N) * R2 + R3) % R0
+            tl.arange(0, BLOCK_SIZE_N)[:, None] + (n + 1) * BLOCK_SIZE_N) * R2 + R3) % R0
         b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[None, :] + (pid_k) * BLOCK_SIZE_K) * R4 + (
-            tl.arange(0, BLOCK_SIZE_N)[:, None] + (n+1) * BLOCK_SIZE_N) * R5 + R6) % R0
+            tl.arange(0, BLOCK_SIZE_N)[:, None] + (n + 1) * BLOCK_SIZE_N) * R5 + R6) % R0
         b_ptrs = b_ptr + (b_offset1 * R0 + b_offset2) % H
 
     # -----------------------------------------------------------
