@@ -31,10 +31,8 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
     # allocates output
     output = torch.zeros((M, N), device=input.device, dtype=input.dtype)
 
-    def grid(META): return (
-        triton.cdiv(M, META['BLOCK_SIZE_M']) *
-        triton.cdiv(N, META['BLOCK_SIZE_N']),
-    )
+    def grid(META):
+        return (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
 
     if allow_autotune and not is_hnet:
         if allow_tf32:

@@ -25,7 +25,6 @@ def triton_tn_kernel(
     A has shape (M, K), B has shape (M, N) and C has shape (K, N)
     """
     pid = tl.program_id(axis=0)
-    num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
     num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
     pid_k = pid // num_pid_n
     pid_n = pid % num_pid_n
@@ -87,10 +86,8 @@ def test_triton_tn():
     triton_output = torch.empty_like(
         torch_output, device=torch_output.device)
 
-    def grid(META): return (
-        triton.cdiv(K, META['BLOCK_SIZE_K']) *
-        triton.cdiv(N, META['BLOCK_SIZE_N']),
-    )
+    def grid(META):
+        return (triton.cdiv(K, META['BLOCK_SIZE_K']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
 
     print(a.stride(1), a.stride(0))
     triton_tn_kernel[grid](a, b, triton_output, M, N, K, a.stride(1), a.stride(0),

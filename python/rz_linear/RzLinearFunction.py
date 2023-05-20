@@ -52,7 +52,6 @@ class RzLinearFunction(torch.autograd.Function):
         input, hashed_weight, random_numbers = ctx.saved_variables
         assert (random_numbers.numel() == 8)
         output_dim = ctx.output_dim
-        chunk_size = ctx.chunk_size
         is_hnet = ctx.is_hnet
         R3, R2, R1, R0 = random_numbers[3].item(), random_numbers[2].item(
         ), random_numbers[1].item(), random_numbers[0].item()

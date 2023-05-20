@@ -1,25 +1,21 @@
-import math
-import pdb
-from typing import Optional
-
 import numpy as np
 import rz_linear
 import torch
 import torch.nn as nn
-import torch.nn.init as init
 from torch.nn.parameter import Parameter
 
 
 class RzLinearFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled):
+    def forward(ctx, hashed_weights, input_v, random_numbers,
+                input_dim, output_dim, chunk_size, tiled):
         '''
             read a chunk_size by performing lsh according to the lsh_mode,
             join chunks to create an embedding of size embedding_dim for each of the
             inputs
         '''
         output = rz_linear.forward(hashed_weights, input_v.contiguous(
-        ), random_numbers,  input_dim, output_dim, chunk_size, tiled)
+        ), random_numbers, input_dim, output_dim, chunk_size, tiled)
         ctx.save_for_backward(hashed_weights, input_v, random_numbers)
         ctx.input_dim = input_dim
         ctx.output_dim = output_dim
@@ -38,20 +34,24 @@ class RzLinearFunction(torch.autograd.Function):
         return wt_grad, in_grad, None, None, None, None, None
 
     @staticmethod
-    def forwardproxy(hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled):
+    def forwardproxy(hashed_weights, input_v, random_numbers,
+                     input_dim, output_dim, chunk_size, tiled):
         output = rz_linear.forward(
-            hashed_weights, input_v, random_numbers,  input_dim, output_dim, chunk_size, tiled)
+            hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled)
         return output
 
     @staticmethod
-    def backwardproxy(grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled):
+    def backwardproxy(grad, hashed_weights, input_v,
+                      random_numbers, input_dim, output_dim, chunk_size, tiled):
         in_grad, wt_grad = rz_linear.backward(
             grad, hashed_weights, input_v, random_numbers, input_dim, output_dim, chunk_size, tiled)
         return in_grad, wt_grad
 
     @staticmethod
-    def get_idx(random_numbers, input_dim, output_dim, chunk_size, weight_size, tiled):
-        return rz_linear.get_idx(random_numbers, input_dim, output_dim, chunk_size, weight_size, tiled)
+    def get_idx(random_numbers, input_dim, output_dim,
+                chunk_size, weight_size, tiled):
+        return rz_linear.get_idx(
+            random_numbers, input_dim, output_dim, chunk_size, weight_size, tiled)
 
 
 class RzLinear(nn.Module):
@@ -75,7 +75,7 @@ class RzLinear(nn.Module):
         r = np.random.RandomState(seed)
         # first number is the prime, rest are random integers
         x = r.randint(0, 2038074743, (50,))
-        x = x + 1*(x % 2 == 0)
+        x = x + 1 * (x % 2 == 0)
         # set of 50 random numbers to use
         random_numbers = np.concatenate([np.array([2038074743]), x])
         self.random_numbers = Parameter(torch.from_numpy(

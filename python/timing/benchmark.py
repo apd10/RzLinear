@@ -12,7 +12,8 @@ from rz_linear.RzLinearFunction import controls
 from simple_model import SimpleModel
 from tabulate import tabulate
 from tqdm import tqdm as tq
-from utils import *
+from utils import (get_device, get_model_bytes, set_device, set_verbose,
+                   timing, vprint)
 
 DEFAULT_MEM_SIZES = [1024 * 1024, 1024 * 1024 * 8, 1024 *
                      1024 * 16, 1024 * 1024 * 32, 1024 * 1024 * 64, 1024 * 1024 * 128]
@@ -84,11 +85,10 @@ def benchmark(shapes: List[List[int]], batch_sizes: List[int],
                         def eval(iters, x, y, forward_times=None):
                             for _ in range(iters):
                                 # forward
-                                t, y_pred = timing(model)(x)
+                                t, _ = timing(model)(x)
                                 if forward_times is not None:
                                     forward_times.append(t)
                                 # loss
-                                loss_value = loss_fct(y, y_pred)
 
                         x = torch.rand((bs, shape[0]), device=get_device())
                         y = torch.rand((bs, 1), device=get_device())
@@ -159,8 +159,8 @@ args = parser.parse_args()
 
 
 def str_to_int_list(s, d=','):
-    l = s.split(d)
-    res = map(int, l)
+    entry = s.split(d)
+    res = map(int, entry)
     return list(res)
 
 

@@ -47,10 +47,8 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
         (H), device=output_grad.device, dtype=output_grad.dtype)
 
     # 1D launch kernel where each block gets its own program.
-    def grid(META): return (
-        triton.cdiv(K, META['BLOCK_SIZE_K']) *
-        triton.cdiv(N, META['BLOCK_SIZE_N']),
-    )
+    def grid(META):
+        return (triton.cdiv(K, META['BLOCK_SIZE_K']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
 
     if allow_autotune and not is_hnet:
         if allow_tf32:
@@ -505,10 +503,8 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
         (M, K), device=output_grad.device, dtype=output_grad.dtype)
 
     # 1D launch kernel where each block gets its own program.
-    def grid(META): return (
-        triton.cdiv(M, META['BLOCK_SIZE_M']) *
-        triton.cdiv(K, META['BLOCK_SIZE_K']),
-    )
+    def grid(META):
+        return (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(K, META['BLOCK_SIZE_K']),)
 
     if allow_autotune and not is_hnet:
         if allow_tf32:
@@ -775,7 +771,6 @@ def rz_linear_backward_input_grad_core(
     """
     pid = tl.program_id(axis=0)
     num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
-    num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     pid_m = pid // num_pid_k
     pid_k = pid % num_pid_k
 
@@ -884,7 +879,6 @@ def hnet_backward_input_grad_core(
     """
     pid = tl.program_id(axis=0)
     num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
-    num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     pid_m = pid // num_pid_k
     pid_k = pid % num_pid_k
 

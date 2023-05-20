@@ -37,7 +37,6 @@ def test_get_idx():
                     BLOCK_SIZE_K, BLOCK_SIZE_N)
         return weight
 
-    M = 1024
     K = 1024
     N = 1024
     BLOCK_SIZE_K = 32
@@ -134,7 +133,6 @@ def test_backward_input():
     N = 1024
     BLOCK_SIZE_K = 64
     BLOCK_SIZE_N = 64
-    BLOCK_SIZE_M = 32
 
     output = torch.rand((M, N), device=device)
     rz = RzLinear(input_dim=K, output_dim=N).to(device)
