@@ -1,3 +1,5 @@
+### Important : Use stable branch
+
 Model compression - matrix multiply with compressed matrix using state-of-the-art ROBE-Z compression.
 
 Speed:
