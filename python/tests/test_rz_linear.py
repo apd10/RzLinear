@@ -1,21 +1,22 @@
 import torch
 from rz_linear import RzLinear
-from rz_linear.impl.RzLinearIdx import rz_linear_idx_tl
+from rz_linear.impl.RzLinearBackward import (rz_linear_backward_input_grad_tl,
+                                             rz_linear_backward_weight_grad_tl)
 from rz_linear.impl.RzLinearForward import rz_linear_forward_tl
-from rz_linear.impl.RzLinearBackward import rz_linear_backward_weight_grad_tl, rz_linear_backward_input_grad_tl
 from rz_linear.impl.RzLinearHash import rz_linear_hash
+from rz_linear.impl.RzLinearIdx import rz_linear_idx_tl
 
 device = torch.device('cuda:0')
 
 
 def test_module():
     rz = RzLinear(input_dim=1024, output_dim=1024).to(device)
-    assert(rz._input_dim == 1024)
-    assert(rz._output_dim == 1024)
+    assert (rz._input_dim == 1024)
+    assert (rz._output_dim == 1024)
     input = torch.rand((1024, 1024), device=device)
     output = rz(input)
-    assert(output.shape[0] == 1024)
-    assert(output.shape[1] == 1024)
+    assert (output.shape[0] == 1024)
+    assert (output.shape[1] == 1024)
 
 
 def test_get_idx():
@@ -26,14 +27,16 @@ def test_get_idx():
             for n in range(N // BLOCK_SIZE_N):
                 idx = rz_linear_hash(
                     k, n, R7, R6, R5, R4, R3, R2, R1, R0, H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-                hashed_weight_slice = slice(idx, idx+BLOCK_SIZE_K*BLOCK_SIZE_N)
-                weight_k_slice = slice(k*BLOCK_SIZE_K, (k+1)*BLOCK_SIZE_K)
-                weight_n_slice = slice(n*BLOCK_SIZE_N, (n+1)*BLOCK_SIZE_N)
+                hashed_weight_slice = slice(
+                    idx, idx + BLOCK_SIZE_K * BLOCK_SIZE_N)
+                weight_k_slice = slice(
+                    k * BLOCK_SIZE_K, (k + 1) * BLOCK_SIZE_K)
+                weight_n_slice = slice(
+                    n * BLOCK_SIZE_N, (n + 1) * BLOCK_SIZE_N)
                 weight[weight_k_slice, weight_n_slice] = hashed_weight[hashed_weight_slice].view(
                     BLOCK_SIZE_K, BLOCK_SIZE_N)
         return weight
 
-    M = 1024
     K = 1024
     N = 1024
     BLOCK_SIZE_K = 32
@@ -49,7 +52,7 @@ def test_get_idx():
         rz._hashed_weight, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, BLOCK_SIZE_K, BLOCK_SIZE_N)
     weight_torch = torch_get_idx(rz._hashed_weight)
 
-    assert(torch.allclose(weight_tl, weight_torch, rtol=1e-3) is True)
+    assert (torch.allclose(weight_tl, weight_torch, rtol=1e-3) is True)
 
 
 def test_forward():
@@ -75,11 +78,12 @@ def test_forward():
     torch.backends.cuda.matmul.allow_tf32 = False
     torch_output = torch.mm(input, weight)
 
-    assert(torch.allclose(rz_output, torch_output, rtol=1e-3) is True)
+    assert (torch.allclose(rz_output, torch_output, rtol=1e-3) is True)
 
 
 def test_backward_weight():
-    def torch_get_weight(input: torch.tensor, output: torch.tensor) -> torch.tensor:
+    def torch_get_weight(input: torch.tensor,
+                         output: torch.tensor) -> torch.tensor:
         hashed_weight = torch.zeros(
             (H), device=output.device, dtype=output.dtype)
         weight = torch.mm(input.permute(1, 0), output)
@@ -87,9 +91,12 @@ def test_backward_weight():
             for n in range(N // BLOCK_SIZE_N):
                 idx = rz_linear_hash(
                     k, n, R7, R6, R5, R4, R3, R2, R1, R0, H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-                hashed_weight_slice = slice(idx, idx+BLOCK_SIZE_K*BLOCK_SIZE_N)
-                weight_k_slice = slice(k*BLOCK_SIZE_K, (k+1)*BLOCK_SIZE_K)
-                weight_n_slice = slice(n*BLOCK_SIZE_N, (n+1)*BLOCK_SIZE_N)
+                hashed_weight_slice = slice(
+                    idx, idx + BLOCK_SIZE_K * BLOCK_SIZE_N)
+                weight_k_slice = slice(
+                    k * BLOCK_SIZE_K, (k + 1) * BLOCK_SIZE_K)
+                weight_n_slice = slice(
+                    n * BLOCK_SIZE_N, (n + 1) * BLOCK_SIZE_N)
                 hashed_weight[hashed_weight_slice] += weight[weight_k_slice,
                                                              weight_n_slice].ravel()
         return hashed_weight
@@ -117,7 +124,7 @@ def test_backward_weight():
                                                   M, K, N, H, R7, R6, R5, R4, R3, R2, R1, R0, allow_tf32=False, allow_autotune=False,
                                                   BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
 
-    assert(torch.allclose(rz_weight, torch_weight, rtol=1e-3) is True)
+    assert (torch.allclose(rz_weight, torch_weight, rtol=1e-3) is True)
 
 
 def test_backward_input():
@@ -126,7 +133,6 @@ def test_backward_input():
     N = 1024
     BLOCK_SIZE_K = 64
     BLOCK_SIZE_N = 64
-    BLOCK_SIZE_M = 32
 
     output = torch.rand((M, N), device=device)
     rz = RzLinear(input_dim=K, output_dim=N).to(device)
@@ -147,4 +153,4 @@ def test_backward_input():
                                                 R3, R2, R1, R0, allow_tf32=False, allow_autotune=False,
                                                 BLOCK_SIZE_K=BLOCK_SIZE_K, BLOCK_SIZE_N=BLOCK_SIZE_N, GROUP_SIZE=1)
 
-    assert(torch.allclose(rz_input, torch_input, rtol=1e-3) is True)
+    assert (torch.allclose(rz_input, torch_input, rtol=1e-3) is True)

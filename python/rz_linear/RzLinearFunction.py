@@ -1,8 +1,7 @@
 import torch
 
-from .impl.RzLinearForward import rz_linear_forward_tl
 from .impl.RzLinearBackward import rz_linear_backward_tl
-
+from .impl.RzLinearForward import rz_linear_forward_tl
 
 controls = {}
 controls['triton_allow_tf32'] = False
@@ -26,7 +25,7 @@ class RzLinearFunction(torch.autograd.Function):
             Returns:
                 output (Tensor): (N, output_dim)
         '''
-        assert(random_numbers.numel() == 8)
+        assert (random_numbers.numel() == 8)
         R3, R2, R1, R0 = random_numbers[3].item(), random_numbers[2].item(
         ), random_numbers[1].item(), random_numbers[0].item()
 
@@ -51,9 +50,8 @@ class RzLinearFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad):
         input, hashed_weight, random_numbers = ctx.saved_variables
-        assert(random_numbers.numel() == 8)
+        assert (random_numbers.numel() == 8)
         output_dim = ctx.output_dim
-        chunk_size = ctx.chunk_size
         is_hnet = ctx.is_hnet
         R3, R2, R1, R0 = random_numbers[3].item(), random_numbers[2].item(
         ), random_numbers[1].item(), random_numbers[0].item()

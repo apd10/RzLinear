@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 # Get the long description from the README file
 with open('README.md', 'r') as f:
@@ -26,7 +26,8 @@ setup(
 
     python_requires='>=3.6, <4',
 
-    install_requires=['torch', 'triton', 'pytest', 'numpy', 'pandas', 'tabulate'],  # Optional
+    install_requires=['torch', 'triton', 'pytest',
+                      'numpy', 'pandas', 'tabulate'],  # Optional
 
     project_urls={  # Optional
         'Source': 'https://github.com/apd10/RzLinear'

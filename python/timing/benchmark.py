@@ -1,29 +1,28 @@
 """ Benchmark on compressed embedding table speed """
 
+import argparse
+from typing import List
+
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
-import pandas as pd
-import numpy as np
-import argparse
-
-from typing import List
-from simple_model import SimpleModel
 from autotuning import autotune, load_configs
-from utils import *
-
-from tqdm import tqdm as tq
-from tabulate import tabulate
-
 from rz_linear.RzLinearFunction import controls
+from simple_model import SimpleModel
+from tabulate import tabulate
+from tqdm import tqdm as tq
+from utils import (get_device, get_model_bytes, set_device, set_verbose,
+                   timing, vprint)
 
-
-DEFAULT_MEM_SIZES = [1024*1024, 1024*1024*8, 1024 *
-                     1024*16, 1024*1024*32, 1024*1024*64, 1024*1024*128]
+DEFAULT_MEM_SIZES = [1024 * 1024, 1024 * 1024 * 8, 1024 *
+                     1024 * 16, 1024 * 1024 * 32, 1024 * 1024 * 64, 1024 * 1024 * 128]
 MAX_ITERS = 10
 WARMUP_ITERS = 2
 
 
-def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[int], optimizers: List[str], mode: str) -> pd.DataFrame:
+def benchmark(shapes: List[List[int]], batch_sizes: List[int],
+              mem_sizes: List[int], optimizers: List[str], mode: str) -> pd.DataFrame:
     """ Benchmark compressed embedding table speed """
     report = pd.DataFrame()
     model_names = ["Full", "HNet", "ROBE-Sketch"]
@@ -64,7 +63,8 @@ def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[i
                         else:
                             model.train()
 
-                        def train(iters, x, y, forward_times=None, backward_times=None, opt_times=None):
+                        def train(iters, x, y, forward_times=None,
+                                  backward_times=None, opt_times=None):
                             for _ in range(iters):
                                 # forward
                                 t, y_pred = timing(model)(x)
@@ -85,11 +85,10 @@ def benchmark(shapes: List[List[int]], batch_sizes: List[int], mem_sizes: List[i
                         def eval(iters, x, y, forward_times=None):
                             for _ in range(iters):
                                 # forward
-                                t, y_pred = timing(model)(x)
+                                t, _ = timing(model)(x)
                                 if forward_times is not None:
                                     forward_times.append(t)
                                 # loss
-                                loss_value = loss_fct(y, y_pred)
 
                         x = torch.rand((bs, shape[0]), device=get_device())
                         y = torch.rand((bs, 1), device=get_device())
@@ -160,13 +159,14 @@ args = parser.parse_args()
 
 
 def str_to_int_list(s, d=','):
-    l = s.split(d)
-    res = map(int, l)
+    entry = s.split(d)
+    res = map(int, entry)
     return list(res)
 
 
 def dims_to_shapes(dims):
-    return [[int(dim.split("x")[0]), int(dim.split("x")[1])] for dim in dims.split(',')]
+    return [[int(dim.split("x")[0]), int(dim.split("x")[1])]
+            for dim in dims.split(',')]
 
 
 set_verbose(args.verbose)

@@ -1,12 +1,12 @@
+import pickle
+
 import torch
 import triton
-import pickle
-from torch import nn
 from rz_linear import RzLinear
-from rz_linear.impl.RzLinearForward import rz_linear_forward_tl
 from rz_linear.impl.RzLinearBackward import rz_linear_backward_tl
-from utils import timing, vprint, get_device
+from rz_linear.impl.RzLinearForward import rz_linear_forward_tl
 from rz_linear.RzLinearFunction import RzLinearFunction
+from utils import get_device, timing, vprint
 
 ITERS = 5
 
@@ -36,12 +36,14 @@ def generate_configs():
                                 {'BLOCK_SIZE_M': m, 'BLOCK_SIZE_K': k, 'BLOCK_SIZE_N': n}, num_warps=num_warps, num_stages=num_stages))
 
 
-def autotune(batch_sizes, shapes, mem_sizes, file_name, allow_tf32=False, mode="forward+backward"):
+def autotune(batch_sizes, shapes, mem_sizes, file_name,
+             allow_tf32=False, mode="forward+backward"):
     # layer-wise autotuning
     # tf32: 10 minutes per shape
     # fp32: 40 minutes per shape
-    # The autotuning process should be improved, but it is not the goal of this project.
-    assert(mode in ["forward", "forward+backward"])
+    # The autotuning process should be improved, but it is not the goal of
+    # this project.
+    assert (mode in ["forward", "forward+backward"])
     generate_configs()
     except_dict = dict()
     for batch_size in batch_sizes:
@@ -99,7 +101,7 @@ def autotune(batch_sizes, shapes, mem_sizes, file_name, allow_tf32=False, mode="
                             fast_time = t
                             fast_config = (
                                 BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, num_warps, num_stages)
-                    except:
+                    except BaseException:
                         except_dict[config] = True
                         vprint('{}: except'.format(config))
                 if fast_time != 0.0:

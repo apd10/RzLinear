@@ -31,10 +31,8 @@ def rz_linear_idx_tl(hashed_weight: torch.tensor,
     weight = torch.empty((K, N), device=hashed_weight.device,
                          dtype=hashed_weight.dtype)
 
-    def grid(META): return (
-        triton.cdiv(K, META['BLOCK_SIZE_K']) *
-        triton.cdiv(N, META['BLOCK_SIZE_N']),
-    )
+    def grid(META):
+        return (triton.cdiv(K, META['BLOCK_SIZE_K']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
 
     rz_linear_idx_kernel[grid](
         hashed_weight, weight,

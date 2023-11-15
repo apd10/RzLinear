@@ -6,7 +6,7 @@ from .RzLinearFunction import RzLinearFunction
 
 class RzLinear(torch.nn.Module):
     # XXX(Keren): triton int64 overflow bug
-    #P = 2038074743
+    # P = 2038074743
     P = 45007
     R = 8
 
@@ -24,7 +24,7 @@ class RzLinear(torch.nn.Module):
             A Linear layer using ROBE-Z compression
 
             Args:
-                input_dim (int): Number of features in each input sample 
+                input_dim (int): Number of features in each input sample
                 output_dim (int): Number of features in each output sample
                 compress_ratio (float): The compress ratio of the hashed_weight comparing to (input_dim, output_dim)
                 chunk_size (int): The size of the minimal hash unit. It is unused for now
@@ -37,7 +37,7 @@ class RzLinear(torch.nn.Module):
         super(RzLinear, self).__init__()
 
         # TODO(aditya) remove after int64 bugfix
-        assert(input_dim < 10**5 and output_dim < 10**5)
+        assert (input_dim < 10**5 and output_dim < 10**5)
 
         self._input_dim = input_dim
         self._output_dim = output_dim
@@ -85,7 +85,7 @@ class RzLinear(torch.nn.Module):
             Returns:
                 output (Tensor): (N, output_dim)
         '''
-        assert(len(x.shape) >= 2)
+        assert (len(x.shape) >= 2)
         dim_gt_2 = x.dim() > 2
         if dim_gt_2:
             shape = x.shape

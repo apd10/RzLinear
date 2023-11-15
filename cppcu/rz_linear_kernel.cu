@@ -218,9 +218,9 @@ int main() {
   int N = 102400;
   int chunk_size = 2;
   printf("problem size : %d x %d x %d\n", M, K, N);
-  
+
   float * h_I, * h_W, * h_O;
-  
+
   h_I = (float * ) malloc(M * K * sizeof(float));
   h_W = (float * ) malloc(N * K * sizeof(float));
   h_O = (float * ) malloc(M * N * sizeof(float));
@@ -258,7 +258,7 @@ int main() {
 
   //printf("output\n");
   //printM(h_O, M, N, true);
-   
+
   free(h_I);
   free(h_W);
   free(h_O);

@@ -25,7 +25,6 @@ def triton_tn_kernel(
     A has shape (M, K), B has shape (M, N) and C has shape (K, N)
     """
     pid = tl.program_id(axis=0)
-    num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
     num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
     pid_k = pid // num_pid_n
     pid_n = pid % num_pid_n
@@ -48,7 +47,7 @@ def triton_tn_kernel(
     # of fp32 values for higher accuracy.
     # `accumulator` will be converted back to fp16 after the loop
     c = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
-    for _ in range(0, M//BLOCK_SIZE_M):
+    for _ in range(0, M // BLOCK_SIZE_M):
         # Note that for simplicity, we don't apply a mask here.
         # This means that if M is not a multiple of BLOCK_SIZE_M,
         # this will access out-of-bounds memory and produce an
@@ -87,13 +86,11 @@ def test_triton_tn():
     triton_output = torch.empty_like(
         torch_output, device=torch_output.device)
 
-    def grid(META): return (
-        triton.cdiv(K, META['BLOCK_SIZE_K']) *
-        triton.cdiv(N, META['BLOCK_SIZE_N']),
-    )
+    def grid(META):
+        return (triton.cdiv(K, META['BLOCK_SIZE_K']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
 
     print(a.stride(1), a.stride(0))
     triton_tn_kernel[grid](a, b, triton_output, M, N, K, a.stride(1), a.stride(0),
                            b.stride(0), b.stride(1), triton_output.stride(0), triton_output.stride(1), allow_tf32=False,
                            BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K)
-    assert(torch.allclose(torch_output, triton_output, rtol=1e-3) is True)
+    assert (torch.allclose(torch_output, triton_output, rtol=1e-3) is True)

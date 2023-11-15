@@ -31,10 +31,8 @@ def rz_linear_forward_tl(input: torch.tensor, hashed_weight: torch.tensor,
     # allocates output
     output = torch.zeros((M, N), device=input.device, dtype=input.dtype)
 
-    def grid(META): return (
-        triton.cdiv(M, META['BLOCK_SIZE_M']) *
-        triton.cdiv(N, META['BLOCK_SIZE_N']),
-    )
+    def grid(META):
+        return (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
 
     if allow_autotune and not is_hnet:
         if allow_tf32:
@@ -242,7 +240,7 @@ def rz_linear_forward_kernel_tf32(
 ):
     rz_linear_forward_core(a_ptr=a_ptr, b_ptr=b_ptr, c_ptr=c_ptr, M=M, N=N, K=K, H=H,
                            stride_am=stride_am, stride_ak=stride_ak, stride_cm=stride_cm, stride_cn=stride_cn,
-                           allow_tf32=True, R7=R7, R6=R6, R5=R5, R4=R4,  R3=R3, R2=R2, R1=R1, R0=R0,
+                           allow_tf32=True, R7=R7, R6=R6, R5=R5, R4=R4, R3=R3, R2=R2, R1=R1, R0=R0,
                            BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_K=BLOCK_SIZE_K,
                            GROUP_SIZE=GROUP_SIZE, EVEN_K=EVEN_K)
 
@@ -364,8 +362,8 @@ def rz_linear_forward_core(
         # TODO(aditya) temp int64 fix
         # b_ptrs = b_offset + ((k + 1) * R3 + pid_n * R2 +
         #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-        b_ptrs = b_offset + ((((k+1) * R3 + pid_n * R2 + R1) % R0) * R0 + (
-            ((k+1) * R7 + pid_n * R5 + R4) % R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+        b_ptrs = b_offset + ((((k + 1) * R3 + pid_n * R2 + R1) % R0) * R0 + (
+            ((k + 1) * R7 + pid_n * R5 + R4) % R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
     # -----------------------------------------------------------
     # Write back the block of the output matrix C
@@ -425,8 +423,8 @@ def hnet_forward_core(
 
     # [BLOCK_SIZE_M, BLOCK_SIZE_N]
     c = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
-    #a = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_K), dtype=tl.float32)
-    #b = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
+    # a = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_K), dtype=tl.float32)
+    # b = tl.zeros((BLOCK_SIZE_K, BLOCK_SIZE_N), dtype=tl.float32)
 
     offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
@@ -440,7 +438,8 @@ def hnet_forward_core(
         # error or (worse!) incorrect results.
         # TODO(Keren): Add K checks
 
-        # offs_k += BLOCK_SIZE_K TODO(aditya) this throws error map::at (do not know why)
+        # offs_k += BLOCK_SIZE_K TODO(aditya) this throws error map::at (do not
+        # know why)
         offs_k = k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
         a_mask = (offs_cm[:, None] < M) & (offs_k[None, :] < K)
         b_mask = (offs_k[:, None] < K) & (offs_cn[None, :] < N)
@@ -453,9 +452,9 @@ def hnet_forward_core(
         # TODO(aditya) temp int64 fix
         # b_ptrs = b_offset + ((k + 1) * R3 + pid_n * R2 +
         #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-        b_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + (k+1) * BLOCK_SIZE_K) * R1 + (
+        b_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + (k + 1) * BLOCK_SIZE_K) * R1 + (
             tl.arange(0, BLOCK_SIZE_N)[None, :] + pid_n * BLOCK_SIZE_N) * R2 + R3) % R0
-        b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + (k+1) * BLOCK_SIZE_K) * R4 + (
+        b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[:, None] + (k + 1) * BLOCK_SIZE_K) * R4 + (
             tl.arange(0, BLOCK_SIZE_N)[None, :] + pid_n * BLOCK_SIZE_N) * R5 + R6) % R0
         b_ptrs = b_ptr + (b_offset1 * R0 + b_offset2) % H
 

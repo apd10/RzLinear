@@ -13,7 +13,7 @@ Sample Usage:
 
 ```
 import torch
-from RzLinear import RzLinear 
+from RzLinear import RzLinear
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt

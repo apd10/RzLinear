@@ -1,6 +1,5 @@
-import ncu_report
-import sys
 import argparse
+import sys
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--ncu-path', type=str, required=True)

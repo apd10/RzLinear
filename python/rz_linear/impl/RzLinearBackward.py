@@ -1,4 +1,5 @@
 from typing import Tuple
+
 import torch
 import triton
 import triton.language as tl
@@ -46,10 +47,8 @@ def rz_linear_backward_weight_grad_tl(input: torch.tensor, output_grad: torch.te
         (H), device=output_grad.device, dtype=output_grad.dtype)
 
     # 1D launch kernel where each block gets its own program.
-    def grid(META): return (
-        triton.cdiv(K, META['BLOCK_SIZE_K']) *
-        triton.cdiv(N, META['BLOCK_SIZE_N']),
-    )
+    def grid(META):
+        return (triton.cdiv(K, META['BLOCK_SIZE_K']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
 
     if allow_autotune and not is_hnet:
         if allow_tf32:
@@ -504,10 +503,8 @@ def rz_linear_backward_input_grad_tl(output_grad: torch.tensor, hashed_weight: t
         (M, K), device=output_grad.device, dtype=output_grad.dtype)
 
     # 1D launch kernel where each block gets its own program.
-    def grid(META): return (
-        triton.cdiv(M, META['BLOCK_SIZE_M']) *
-        triton.cdiv(K, META['BLOCK_SIZE_K']),
-    )
+    def grid(META):
+        return (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(K, META['BLOCK_SIZE_K']),)
 
     if allow_autotune and not is_hnet:
         if allow_tf32:
@@ -774,7 +771,6 @@ def rz_linear_backward_input_grad_core(
     """
     pid = tl.program_id(axis=0)
     num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
-    num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     pid_m = pid // num_pid_k
     pid_k = pid % num_pid_k
 
@@ -817,8 +813,8 @@ def rz_linear_backward_input_grad_core(
         # TODO(aditya) temporary int64 fix
         # b_ptrs = b_offset + (pid_k * R3 + (n + 1) * R2 +
         #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-        b_ptrs = b_offset + ((((pid_k) * R3 + (n+1) * R2 + R1) % R0) * R0 + (
-            ((pid_k) * R7 + (n+1) * R5 + R4) % R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+        b_ptrs = b_offset + ((((pid_k) * R3 + (n + 1) * R2 + R1) % R0) * R0 + (
+            ((pid_k) * R7 + (n + 1) * R5 + R4) % R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
 
     # -----------------------------------------------------------
     # Write back the block of the output matrix C
@@ -883,7 +879,6 @@ def hnet_backward_input_grad_core(
     """
     pid = tl.program_id(axis=0)
     num_pid_k = tl.cdiv(K, BLOCK_SIZE_K)
-    num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     pid_m = pid // num_pid_k
     pid_k = pid % num_pid_k
 
@@ -937,11 +932,11 @@ def hnet_backward_input_grad_core(
         # TODO(aditya) temporary int64 fix
         # b_ptrs = b_offset + (pid_k * R3 + (n + 1) * R2 +
         #                     R1) % R0 % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
-        #b_ptrs = b_offset + ((((pid_k) * R3 + (n+1) * R2 + R1)%R0) * R0 + (((pid_k) * R7 + (n+1) * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
+        # b_ptrs = b_offset + ((((pid_k) * R3 + (n+1) * R2 + R1)%R0) * R0 + (((pid_k) * R7 + (n+1) * R5 + R4)%R0)) % (H - BLOCK_SIZE_K * BLOCK_SIZE_N)
         b_offset1 = ((tl.arange(0, BLOCK_SIZE_K)[None, :] + (pid_k) * BLOCK_SIZE_K) * R1 + (
-            tl.arange(0, BLOCK_SIZE_N)[:, None] + (n+1) * BLOCK_SIZE_N) * R2 + R3) % R0
+            tl.arange(0, BLOCK_SIZE_N)[:, None] + (n + 1) * BLOCK_SIZE_N) * R2 + R3) % R0
         b_offset2 = ((tl.arange(0, BLOCK_SIZE_K)[None, :] + (pid_k) * BLOCK_SIZE_K) * R4 + (
-            tl.arange(0, BLOCK_SIZE_N)[:, None] + (n+1) * BLOCK_SIZE_N) * R5 + R6) % R0
+            tl.arange(0, BLOCK_SIZE_N)[:, None] + (n + 1) * BLOCK_SIZE_N) * R5 + R6) % R0
         b_ptrs = b_ptr + (b_offset1 * R0 + b_offset2) % H
 
     # -----------------------------------------------------------
